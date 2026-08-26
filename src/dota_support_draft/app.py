@@ -44,6 +44,10 @@ def main() -> int:
     loader.moveToThread(thread)
     windows = [window]
 
+    # Keep both objects alive through the queued result transition and release them on finish.
+    thread.finished.connect(loader.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+
     def show_ready(data: DraftBootstrapData) -> None:
         session = ManualDraftSession(data.heroes, data.patch)
         replacement = cast(
@@ -53,21 +57,29 @@ def main() -> int:
             ),
         )
         windows.append(replacement)
-        windows[0].close()
         replacement.show()
+        windows[0].close()
         thread.quit()
 
     def show_failure(message: str) -> None:
-        windows[0].close()
         replacement = cast(
             MainWindow, create_main_window(initial_status=f"Error loading OpenDota data: {message}")
         )
         windows.append(replacement)
         replacement.show()
+        windows[0].close()
         thread.quit()
 
     thread.started.connect(loader.run)
     loader.ready.connect(show_ready)
     loader.failed.connect(show_failure)
     thread.start()
+
+    # Avoid Qt destroying a still-running QThread if the user closes during bootstrap.
+    def stop_worker() -> None:
+        if thread.isRunning():
+            thread.quit()
+            thread.wait()
+
+    application.aboutToQuit.connect(stop_worker)
     return int(application.exec())

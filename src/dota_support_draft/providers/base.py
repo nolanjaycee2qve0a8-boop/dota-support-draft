@@ -9,7 +9,9 @@ from dota_support_draft.domain import (
     MatchupStat,
     Patch,
     PersonalHeroStat,
+    PlayerMatchSummary,
     PlayerProfile,
+    PlayerProfileState,
     Role,
 )
 
@@ -33,7 +35,10 @@ class DotaDataProvider(ABC):
     def get_synergy_stats(self, hero: Hero, patch: Patch) -> tuple[HeroPairStat, ...]: ...
 
     @abstractmethod
-    def get_player_matches(self, profile: PlayerProfile) -> tuple[object, ...]: ...
+    def get_player_profile_state(self, profile: PlayerProfile) -> PlayerProfileState: ...
+
+    @abstractmethod
+    def get_player_matches(self, profile: PlayerProfile) -> tuple[PlayerMatchSummary, ...]: ...
 
     @abstractmethod
     def get_player_hero_stats(

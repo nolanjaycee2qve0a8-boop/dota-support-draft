@@ -8,6 +8,8 @@ DOTA-001 establishes domain contracts, local SQLite repositories, provider bound
 
 DOTA-002 adds a read-only OpenDota provider with explicit cache/provenance and unknown-role safeguards. It has no recommendation weighting or automatic draft collection.
 
+DOTA-003 adds manual picks/bans and an immediately updating legal candidate list. Candidate ordering may reflect all-time personal familiarity; it is not recommendation scoring.
+
 ## Run
 
 Install Python 3.11+ dependencies, then run from this directory:

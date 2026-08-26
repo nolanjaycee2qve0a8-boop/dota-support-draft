@@ -23,6 +23,8 @@ class ManualDraftSession:
         self.bans: set[Hero] = set()
 
     def set_role(self, role: Role) -> None:
+        if role not in (Role.POSITION_4, Role.POSITION_5):
+            raise ManualDraftError("Only Position 4 and Position 5 are supported")
         self.role = role
 
     def _check_available(self, hero: Hero) -> None:

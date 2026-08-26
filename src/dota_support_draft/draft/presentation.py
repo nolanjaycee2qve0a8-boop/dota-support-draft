@@ -18,6 +18,29 @@ class CandidateRow:
         return self.hero.localized_name or self.hero.canonical_name
 
 
+def format_optional_count(value: int | None) -> str:
+    return "—" if value is None else str(value)
+
+
+def format_optional_rate(value: float | None) -> str:
+    return "—" if value is None else f"{value:.0%}"
+
+
+def format_player_status(
+    player: object | None, personal_error: str | None
+) -> tuple[str, str | None]:
+    if player is None:
+        return "Player: Not configured", personal_error
+    availability = getattr(player, "availability", None)
+    profile = getattr(player, "profile", None)
+    if getattr(availability, "value", availability) == "PUBLIC":
+        return (
+            f"Player: {getattr(profile, 'display_name', None) or 'Public account'}",
+            personal_error,
+        )
+    return "Player: Unavailable", personal_error
+
+
 def build_candidate_rows(
     heroes: tuple[Hero, ...], personal_stats: tuple[PersonalHeroStat, ...] = ()
 ) -> tuple[CandidateRow, ...]:

@@ -46,7 +46,12 @@ def main() -> int:
 
     def show_ready(data: DraftBootstrapData) -> None:
         session = ManualDraftSession(data.heroes, data.patch)
-        replacement = cast(MainWindow, create_main_window(session, data.personal_stats))
+        replacement = cast(
+            MainWindow,
+            create_main_window(
+                session, data.personal_stats, player=data.player, personal_error=data.personal_error
+            ),
+        )
         windows.append(replacement)
         windows[0].close()
         replacement.show()

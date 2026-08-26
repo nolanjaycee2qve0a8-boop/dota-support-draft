@@ -1,20 +1,33 @@
 from collections.abc import Callable
+from typing import Any
 
 from dota_support_draft.domain import Hero, PersonalHeroStat, Role
-from dota_support_draft.draft import ManualDraftSession, build_candidate_rows, filter_candidates
+from dota_support_draft.draft import (
+    CandidateRow,
+    ManualDraftSession,
+    build_candidate_rows,
+    filter_candidates,
+    format_optional_count,
+    format_optional_rate,
+    format_player_status,
+)
 
 
 def create_main_window(
     session: ManualDraftSession | None = None,
     personal_stats: tuple[PersonalHeroStat, ...] = (),
     initial_status: str = "Loading data...",
+    player: object | None = None,
+    personal_error: str | None = None,
 ) -> object:
     """Thin UI binding; session owns all draft invariants and candidate eligibility."""
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import (
         QHBoxLayout,
         QLabel,
         QLineEdit,
         QListWidget,
+        QListWidgetItem,
         QMainWindow,
         QPushButton,
         QRadioButton,
@@ -29,10 +42,15 @@ def create_main_window(
     contents = QWidget()
     layout = QVBoxLayout(contents)
     layout.addWidget(QLabel("Dota Support Draft Assistant"))
+    player_label, warning = format_player_status(player, personal_error)
     status = QLabel(
-        initial_status if session is None else f"Patch: {session.patch.version} | Ready"
+        initial_status
+        if session is None
+        else f"Patch: {session.patch.version} | {player_label} | Core Draft: Ready"
     )
     layout.addWidget(status)
+    if warning:
+        layout.addWidget(QLabel(f"Personal data unavailable: {warning}"))
     role_row = QHBoxLayout()
     four = QRadioButton("Position 4")
     five = QRadioButton("Position 5")
@@ -57,8 +75,11 @@ def create_main_window(
     add_ally = QPushButton("Add Ally")
     add_enemy = QPushButton("Add Enemy")
     ban = QPushButton("Ban")
+    remove_ally = QPushButton("Remove Ally")
+    remove_enemy = QPushButton("Remove Enemy")
+    unban = QPushButton("Unban")
     reset = QPushButton("Reset Draft")
-    for button in (add_ally, add_enemy, ban, reset):
+    for button in (add_ally, add_enemy, ban, remove_ally, remove_enemy, unban, reset):
         controls.addWidget(button)
     layout.addLayout(controls)
     layout.addWidget(
@@ -68,30 +89,37 @@ def create_main_window(
     candidates.setHorizontalHeaderLabels(["Hero", "Games", "Wins", "Win Rate", "Status"])
     layout.addWidget(candidates)
     if session is not None:
+        rendered_rows: list[CandidateRow] = []
+        hero_by_id = {hero.hero_id: hero for hero in session.heroes}
 
         def refresh() -> None:
             allies.clear()
             enemies.clear()
             bans.clear()
             for hero in session.allies:
-                allies.addItem(hero.localized_name or hero.canonical_name)
+                item = QListWidgetItem(hero.localized_name or hero.canonical_name)
+                item.setData(Qt.UserRole, hero.hero_id)
+                allies.addItem(item)
             for hero in session.enemies:
-                enemies.addItem(hero.localized_name or hero.canonical_name)
+                item = QListWidgetItem(hero.localized_name or hero.canonical_name)
+                item.setData(Qt.UserRole, hero.hero_id)
+                enemies.addItem(item)
             for hero in session.bans:
-                bans.addItem(hero.localized_name or hero.canonical_name)
+                item = QListWidgetItem(hero.localized_name or hero.canonical_name)
+                item.setData(Qt.UserRole, hero.hero_id)
+                bans.addItem(item)
             rows = filter_candidates(
                 build_candidate_rows(session.candidates, personal_stats), search.text()
             )
+            rendered_rows[:] = rows
             candidates.setRowCount(len(rows))
             for index, row in enumerate(rows):
                 for column, value in enumerate(
                     (
                         row.display_name,
-                        row.personal_matches or "—",
-                        row.personal_wins or "—",
-                        f"{row.personal_win_rate:.0%}"
-                        if row.personal_win_rate is not None
-                        else "—",
+                        format_optional_count(row.personal_matches),
+                        format_optional_count(row.personal_wins),
+                        format_optional_rate(row.personal_win_rate),
                         row.status,
                     )
                 ):
@@ -99,10 +127,11 @@ def create_main_window(
 
         def chosen() -> Hero | None:
             row = candidates.currentRow()
-            rows = filter_candidates(
-                build_candidate_rows(session.candidates, personal_stats), search.text()
-            )
-            return rows[row].hero if 0 <= row < len(rows) else None
+            return rendered_rows[row].hero if 0 <= row < len(rendered_rows) else None
+
+        def selected_list_hero(widget: Any) -> Hero | None:
+            item = widget.currentItem()
+            return hero_by_id.get(item.data(Qt.UserRole)) if item is not None else None
 
         def apply(action: Callable[[Hero], None]) -> None:
             hero = chosen()
@@ -111,11 +140,24 @@ def create_main_window(
                     action(hero)
                 except ValueError as error:
                     status.setText(str(error))
+            else:
+                status.setText("Select a candidate hero first.")
+            refresh()
+
+        def remove_from(widget: Any, action: Callable[[Hero], None]) -> None:
+            hero = selected_list_hero(widget)
+            if hero is None:
+                status.setText("Select a hero from the list first.")
+            else:
+                action(hero)
             refresh()
 
         add_ally.clicked.connect(lambda: apply(session.add_ally))
         add_enemy.clicked.connect(lambda: apply(session.add_enemy))
         ban.clicked.connect(lambda: apply(session.ban))
+        remove_ally.clicked.connect(lambda: remove_from(allies, session.remove_ally))
+        remove_enemy.clicked.connect(lambda: remove_from(enemies, session.remove_enemy))
+        unban.clicked.connect(lambda: remove_from(bans, session.unban))
 
         def reset_draft() -> None:
             session.clear()
@@ -135,8 +177,20 @@ def create_main_window(
         search.textChanged.connect(lambda _: refresh())
         refresh()
     else:
-        for widget in (four, five, add_ally, add_enemy, ban, reset, search, candidates):
+        for widget in (
+            four,
+            five,
+            add_ally,
+            add_enemy,
+            ban,
+            remove_ally,
+            remove_enemy,
+            unban,
+            reset,
+            search,
+            candidates,
+        ):
             widget.setEnabled(False)
     window.setCentralWidget(contents)
-    window.resize(420, 160)
+    window.resize(900, 650)
     return window

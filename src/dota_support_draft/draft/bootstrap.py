@@ -10,6 +10,7 @@ from dota_support_draft.domain import (
     PlayerProfileState,
 )
 from dota_support_draft.providers.base import DotaDataProvider
+from dota_support_draft.providers.errors import ProviderError
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,11 +32,12 @@ class DraftBootstrapService:
             return DraftBootstrapData(patch, heroes)
         profile = PlayerProfile(account_id)
         try:
-            return DraftBootstrapData(
-                patch,
-                heroes,
-                self.provider.get_player_profile_state(profile),
-                self.provider.get_player_hero_stats(profile),
-            )
-        except Exception as error:
+            player = self.provider.get_player_profile_state(profile)
+        except ProviderError as error:
             return DraftBootstrapData(patch, heroes, personal_error=str(error))
+        try:
+            return DraftBootstrapData(
+                patch, heroes, player, self.provider.get_player_hero_stats(profile)
+            )
+        except ProviderError as error:
+            return DraftBootstrapData(patch, heroes, player, personal_error=str(error))

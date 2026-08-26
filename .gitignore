@@ -11,3 +11,4 @@ config.local.toml
 build/
 dist/
 
+.dota-support-draft/

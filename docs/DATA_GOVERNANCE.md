@@ -8,3 +8,4 @@ Formal statistics carry `DataProvenance`: provider, retrieval time, source scope
 
 Provider-specific payloads remain in adapter DTOs. Sample size and provenance support future confidence handling; they must not be silently discarded.
 
+`patch_version = None` explicitly means the evidence is not patch-specific, such as OpenDota all-time player hero totals; it must never be replaced with the current application patch.

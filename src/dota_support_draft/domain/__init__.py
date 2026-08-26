@@ -11,7 +11,10 @@ from .models import (
     MatchupStat,
     Patch,
     PersonalHeroStat,
+    PlayerAvailability,
+    PlayerMatchSummary,
     PlayerProfile,
+    PlayerProfileState,
     Role,
     TeamSide,
 )
@@ -29,7 +32,10 @@ __all__ = [
     "MatchupStat",
     "Patch",
     "PersonalHeroStat",
+    "PlayerAvailability",
+    "PlayerMatchSummary",
     "PlayerProfile",
+    "PlayerProfileState",
     "Role",
     "TeamSide",
 ]

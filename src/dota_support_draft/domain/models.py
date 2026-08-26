@@ -57,18 +57,14 @@ class DataProvenance:
     provider: str
     retrieved_at: datetime
     source_scope: str
-    patch_version: str
+    patch_version: str | None
     sample_size: int | None = None
     source_reference: str | None = None
     data_kind: str = "REAL"
 
     def __post_init__(self) -> None:
-        if (
-            not self.provider.strip()
-            or not self.source_scope.strip()
-            or not self.patch_version.strip()
-        ):
-            raise ValueError("Provenance provider, source scope, and patch context are required")
+        if not self.provider.strip() or not self.source_scope.strip():
+            raise ValueError("Provenance provider and source scope are required")
         if self.sample_size is not None and self.sample_size < 0:
             raise ValueError("Provenance sample size cannot be negative")
         if self.data_kind not in {"REAL", "TEST/FIXTURE", "MANUAL"}:
@@ -224,7 +220,7 @@ class PersonalHeroStat:
     matches: int
     wins: int
     win_rate: float
-    confidence: float
+    confidence: float | None
     provenance: DataProvenance
     role: Role | None = None
     recent_matches: int | None = None
@@ -233,9 +229,45 @@ class PersonalHeroStat:
 
     def __post_init__(self) -> None:
         _validate_record(self.matches, self.wins, self.win_rate)
-        if not 0 <= self.confidence <= 1:
+        if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
         if self.recent_matches is not None and self.recent_matches < 0:
             raise ValueError("Recent matches cannot be negative")
         if self.recent_win_rate is not None and not 0 <= self.recent_win_rate <= 1:
             raise ValueError("Recent win rate must be between 0 and 1")
+
+
+class PlayerAvailability(StrEnum):
+    PUBLIC = "PUBLIC"
+    PRIVATE_OR_UNAVAILABLE = "PRIVATE_OR_UNAVAILABLE"
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerProfileState:
+    profile: PlayerProfile
+    availability: PlayerAvailability
+    provenance: DataProvenance
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerMatchSummary:
+    match_id: int
+    hero: Hero
+    start_time: datetime
+    duration_seconds: int
+    player_is_radiant: bool
+    radiant_win: bool
+    player_won: bool
+    provenance: DataProvenance
+    lobby_type: int | None = None
+    game_mode: int | None = None
+    lane_role_evidence: int | None = None
+    inferred_support_role: Role | None = None
+
+    def __post_init__(self) -> None:
+        if self.match_id <= 0 or self.duration_seconds < 0:
+            raise ValueError("Invalid match summary")
+        if self.player_won != (
+            self.radiant_win if self.player_is_radiant else not self.radiant_win
+        ):
+            raise ValueError("Player win must agree with team side")

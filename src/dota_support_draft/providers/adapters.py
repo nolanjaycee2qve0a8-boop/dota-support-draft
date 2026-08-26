@@ -1,10 +1,6 @@
-"""Named integration placeholders. No network requests exist in DOTA-001."""
+"""Named integration placeholders not implemented by the OpenDota baseline."""
 
 from dota_support_draft.providers.base import DotaDataProvider
-
-
-class OpenDotaProvider(DotaDataProvider):
-    pass
 
 
 class STRATZProvider(DotaDataProvider):

@@ -14,6 +14,10 @@ class ProviderRateLimited(ProviderError):
     pass
 
 
+class ProviderNotFound(ProviderError):
+    pass
+
+
 class ProviderMalformedResponse(ProviderError):
     pass
 

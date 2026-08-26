@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -26,9 +27,9 @@ from dota_support_draft.providers.base import DotaDataProvider
 from dota_support_draft.providers.cache import CachedJson, DiskJsonCache
 from dota_support_draft.providers.errors import (
     PatchResolutionError,
-    PlayerDataUnavailable,
     ProviderCapabilityUnavailable,
     ProviderMalformedResponse,
+    ProviderNotFound,
     ProviderRateLimited,
     ProviderTimeout,
     ProviderTransportError,
@@ -52,21 +53,22 @@ class UrllibJsonTransport:
             if error.code == 429:
                 raise ProviderRateLimited("OpenDota rate limited this request") from error
             if error.code == 404:
-                raise PlayerDataUnavailable(
-                    "OpenDota has no public data for this player"
-                ) from error
+                raise ProviderNotFound(f"OpenDota path was not found: {path}") from error
             raise ProviderTransportError(f"OpenDota returned HTTP {error.code}") from error
         except TimeoutError as error:
             raise ProviderTimeout("OpenDota request timed out") from error
         except URLError as error:
+            if isinstance(error.reason, (TimeoutError, socket.timeout)):
+                raise ProviderTimeout("OpenDota request timed out") from error
             raise ProviderTransportError("OpenDota transport failure") from error
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ProviderMalformedResponse("OpenDota returned invalid JSON") from error
 
 
 class OpenDotaProvider(DotaDataProvider):
-    STATIC_TTL = timedelta(days=7)
-    DYNAMIC_TTL = timedelta(minutes=15)
+    HERO_CONSTANTS_TTL = timedelta(days=7)
+    PATCH_CONSTANTS_TTL = timedelta(hours=6)
+    PLAYER_DATA_TTL = timedelta(minutes=15)
 
     def __init__(
         self,
@@ -98,7 +100,7 @@ class OpenDotaProvider(DotaDataProvider):
         )
 
     def get_heroes(self) -> tuple[Hero, ...]:
-        result = self._get("/constants/heroes", self.STATIC_TTL)
+        result = self._get("/constants/heroes", self.HERO_CONSTANTS_TTL)
         if not isinstance(result.payload, dict):
             raise ProviderMalformedResponse("Hero constants must be an object")
         heroes: list[Hero] = []
@@ -111,7 +113,7 @@ class OpenDotaProvider(DotaDataProvider):
                         int(record["id"]),
                         str(record["name"]),
                         record.get("localized_name"),
-                        bool(record.get("cm_enabled", True)),
+                        True,
                     )
                 )
             except (KeyError, TypeError, ValueError) as error:
@@ -119,7 +121,7 @@ class OpenDotaProvider(DotaDataProvider):
         return tuple(sorted(heroes, key=lambda hero: hero.hero_id))
 
     def get_current_patch(self) -> Patch:
-        result = self._get("/constants/patch", self.STATIC_TTL)
+        result = self._get("/constants/patch", self.PATCH_CONSTANTS_TTL)
         if not isinstance(result.payload, list):
             raise ProviderMalformedResponse("Patch constants must be a list")
         patches: list[tuple[int, str, datetime]] = []
@@ -146,8 +148,8 @@ class OpenDotaProvider(DotaDataProvider):
     def get_player_profile_state(self, profile: PlayerProfile) -> PlayerProfileState:
         path = f"/players/{profile.account_id}"
         try:
-            result = self._get(path, self.DYNAMIC_TTL)
-        except PlayerDataUnavailable:
+            result = self._get(path, self.PLAYER_DATA_TTL)
+        except ProviderNotFound:
             return PlayerProfileState(
                 profile,
                 PlayerAvailability.PRIVATE_OR_UNAVAILABLE,
@@ -182,7 +184,7 @@ class OpenDotaProvider(DotaDataProvider):
                 "OpenDota player hero totals are not patch-specific"
             )
         path = f"/players/{profile.account_id}/heroes"
-        result = self._get(path, self.DYNAMIC_TTL)
+        result = self._get(path, self.PLAYER_DATA_TTL)
         if not isinstance(result.payload, list):
             raise ProviderMalformedResponse("Player heroes must be a list")
         heroes = {hero.hero_id: hero for hero in self.get_heroes()}
@@ -210,7 +212,7 @@ class OpenDotaProvider(DotaDataProvider):
 
     def get_player_matches(self, profile: PlayerProfile) -> tuple[PlayerMatchSummary, ...]:
         path = f"/players/{profile.account_id}/recentMatches"
-        result = self._get(path, self.DYNAMIC_TTL)
+        result = self._get(path, self.PLAYER_DATA_TTL)
         if not isinstance(result.payload, list):
             raise ProviderMalformedResponse("Recent matches must be a list")
         heroes = {hero.hero_id: hero for hero in self.get_heroes()}

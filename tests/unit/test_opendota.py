@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from urllib.error import HTTPError, URLError
 
 import pytest
 
-from dota_support_draft.domain import PlayerProfile
+from dota_support_draft.domain import PlayerAvailability, PlayerProfile
+from dota_support_draft.providers import opendota
 from dota_support_draft.providers.cache import DiskJsonCache
-from dota_support_draft.providers.errors import PatchResolutionError, ProviderCapabilityUnavailable
-from dota_support_draft.providers.opendota import OpenDotaProvider
+from dota_support_draft.providers.errors import (
+    PatchResolutionError,
+    ProviderCapabilityUnavailable,
+    ProviderNotFound,
+    ProviderRateLimited,
+    ProviderTimeout,
+    ProviderTransportError,
+)
+from dota_support_draft.providers.opendota import OpenDotaProvider, UrllibJsonTransport
 
 
 class FakeTransport:
@@ -35,6 +44,13 @@ def test_heroes_normalize_and_sort_deterministically(tmp_path) -> None:
         },
     )
     assert [hero.hero_id for hero in instance.get_heroes()] == [1, 2]
+
+
+def test_cm_disabled_hero_stays_active_for_normal_draft(tmp_path) -> None:
+    instance, _ = provider(
+        tmp_path, {"/constants/heroes": {"1": {"id": 1, "name": "hero", "cm_enabled": False}}}
+    )
+    assert instance.get_heroes()[0].is_active
 
 
 def test_malformed_hero_is_rejected(tmp_path) -> None:
@@ -108,5 +124,62 @@ def test_expired_and_corrupt_cache_refreshes(tmp_path) -> None:
     cache = DiskJsonCache(tmp_path)
     cache.write("x", {"old": True}, datetime.now(UTC) - timedelta(days=1))
     assert cache.read("x", timedelta(seconds=1)) is None
-    (tmp_path / "bad.json").write_text("not json")
+    before = set(tmp_path.glob("*.json"))
+    cache.write("bad", {"old": True}, datetime.now(UTC))
+    cache_file = next(iter(set(tmp_path.glob("*.json")) - before))
+    cache_file.write_text("not json")
     assert cache.read("bad", timedelta(days=1)) is None
+
+
+def test_corrupt_provider_cache_refreshes_from_transport(tmp_path) -> None:
+    cache = DiskJsonCache(tmp_path)
+    cache.write("/constants/heroes", {"old": True}, datetime.now(UTC))
+    next(tmp_path.glob("*.json")).write_text("invalid json")
+    transport = FakeTransport({"/constants/heroes": {"1": {"id": 1, "name": "fresh"}}})
+    assert OpenDotaProvider(cache, transport).get_heroes()[0].canonical_name == "fresh"
+    assert transport.calls == 1
+
+
+def test_public_and_not_found_player_profiles_are_distinct(tmp_path) -> None:
+    public, _ = provider(tmp_path, {"/players/synthetic": {"profile": {"personaname": "Public"}}})
+    assert (
+        public.get_player_profile_state(PlayerProfile("synthetic")).availability
+        is PlayerAvailability.PUBLIC
+    )
+
+    class NotFoundTransport:
+        def get_json(self, path: str, timeout_seconds: float) -> object:
+            raise ProviderNotFound(path)
+
+    unavailable = OpenDotaProvider(DiskJsonCache(tmp_path / "unavailable"), NotFoundTransport())
+    assert (
+        unavailable.get_player_profile_state(PlayerProfile("synthetic")).availability
+        is PlayerAvailability.PRIVATE_OR_UNAVAILABLE
+    )
+
+
+def test_constants_not_found_is_not_player_unavailable(tmp_path) -> None:
+    class NotFoundTransport:
+        def get_json(self, path: str, timeout_seconds: float) -> object:
+            raise ProviderNotFound(path)
+
+    with pytest.raises(ProviderNotFound):
+        OpenDotaProvider(DiskJsonCache(tmp_path), NotFoundTransport()).get_heroes()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (HTTPError("url", 429, "rate", {}, None), ProviderRateLimited),
+        (HTTPError("url", 500, "failure", {}, None), ProviderTransportError),
+        (TimeoutError(), ProviderTimeout),
+        (URLError(TimeoutError()), ProviderTimeout),
+    ],
+)
+def test_urllib_transport_maps_http_and_timeout_errors(monkeypatch, error, expected) -> None:
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(opendota, "urlopen", fail)
+    with pytest.raises(expected):
+        UrllibJsonTransport().get_json("/constants/heroes", 1)

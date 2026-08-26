@@ -19,6 +19,15 @@ python -m dota_support_draft
 
 The window shows `Ready`; close it normally to exit. See [Windows packaging](docs/WINDOWS_PACKAGING.md) for the future executable contract.
 
+## Optional OpenDota smoke
+
+This does a live request only when you explicitly supply your own account ID; it never prints raw match data:
+
+```powershell
+$env:DOTA_SUPPORT_ACCOUNT_ID = "your-steam32-account-id"
+python -m dota_support_draft.smoke
+```
+
 ## Quality gates
 
 ```powershell

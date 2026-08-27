@@ -6,4 +6,6 @@ The live STRATZ provider is deliberately capability-gated in this checkout. No t
 
 DOTA-004R1 separates immutable P4/P5 evidence bundles, fixes fixed-weight and sample-shrunk recommendation semantics, prevents familiarity-only scores, and adds an opt-in compact schema probe. Draft-dependent pair evidence remains unavailable until the probe verifies a bounded, position-aware live contract.
 
+DOTA-004R1.1 closes immediate role-switch refresh, zero-sample pair, and zero-public-weight edge cases. The schema probe now prints compact bounded root/type signatures but does not enable any live production capability.
+
 Non-goals remain GSI, OCR, overlays, process access, game automation, ML, and calibrated win probabilities.

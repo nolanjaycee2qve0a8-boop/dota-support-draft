@@ -68,7 +68,8 @@ def create_main_window(
     role_row = QHBoxLayout()
     four = QRadioButton("Position 4")
     five = QRadioButton("Position 5")
-    four.setChecked(True)
+    four.setChecked(session is None or session.role is Role.POSITION_4)
+    five.setChecked(session is not None and session.role is Role.POSITION_5)
     role_row.addWidget(four)
     role_row.addWidget(five)
     layout.addLayout(role_row)
@@ -208,10 +209,12 @@ def create_main_window(
         def choose_four(checked: bool) -> None:
             if checked:
                 session.set_role(Role.POSITION_4)
+                refresh()
 
         def choose_five(checked: bool) -> None:
             if checked:
                 session.set_role(Role.POSITION_5)
+                refresh()
 
         reset.clicked.connect(reset_draft)
         four.toggled.connect(choose_four)

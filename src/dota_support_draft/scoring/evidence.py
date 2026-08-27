@@ -29,6 +29,8 @@ class ExperimentalWeights:
     def __post_init__(self) -> None:
         if any(value < 0 for value in self.values()) or abs(sum(self.values()) - 1.0) > 1e-9:
             raise ValueError("Experimental weights must be non-negative and sum to 1.0")
+        if self.meta + self.counter + self.synergy <= 0:
+            raise ValueError("At least one public evidence weight must be positive")
 
     def values(self) -> tuple[float, float, float, float]:
         return self.meta, self.counter, self.synergy, self.familiarity
@@ -72,7 +74,9 @@ class ExperimentalEvidenceScoringEngine:
         counters = self._counters(draft, candidate, evidence.counters)
         synergies = self._synergies(draft, candidate, evidence.synergies)
         familiarity = self._familiarity(candidate, personal_stats)
-        public_components = tuple(item for item in (meta, counters, synergies) if item is not None)
+        public_components = tuple(
+            item for item in (meta, counters, synergies) if item is not None and item.weight > 0
+        )
         all_components = (
             ("meta", meta),
             ("counter", counters),
@@ -247,6 +251,7 @@ class ExperimentalEvidenceScoringEngine:
             and row.role == role
             and row.patch == patch
             and row.effect is not None
+            and row.matches > 0
             and (row.enemy if isinstance(row, CounterEvidence) else row.ally) in related_heroes
         )
         if not relevant:

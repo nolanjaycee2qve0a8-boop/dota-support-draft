@@ -14,7 +14,7 @@ from dota_support_draft.domain import (
 )
 from dota_support_draft.draft import ManualDraftSession
 from dota_support_draft.draft.bootstrap import DraftBootstrapService
-from dota_support_draft.scoring import ExperimentalEvidenceScoringEngine
+from dota_support_draft.scoring import ExperimentalEvidenceScoringEngine, ExperimentalWeights
 
 
 def _provenance(patch: object) -> DataProvenance:
@@ -242,4 +242,82 @@ def test_confidence_reflects_public_component_coverage(hero, other_hero, patch) 
     assert (
         engine.score(session.to_draft_state(), hero, complete).confidence
         > engine.score(session.to_draft_state(), hero, meta_only).confidence
+    )
+
+
+@pytest.mark.parametrize("kind", ("counter", "synergy"))
+def test_zero_sample_pair_is_non_scoring(kind, hero, other_hero, patch) -> None:
+    session = ManualDraftSession((hero, other_hero), patch)
+    if kind == "counter":
+        session.add_enemy(other_hero)
+        evidence = EvidenceSet(
+            counters=(
+                CounterEvidence(
+                    hero,
+                    other_hero,
+                    Role.POSITION_4,
+                    patch,
+                    0,
+                    _provenance(patch),
+                    effect=0.1,
+                ),
+            )
+        )
+    else:
+        session.add_ally(other_hero)
+        evidence = EvidenceSet(
+            synergies=(
+                SynergyEvidence(
+                    hero,
+                    other_hero,
+                    Role.POSITION_4,
+                    patch,
+                    0,
+                    _provenance(patch),
+                    effect=0.1,
+                ),
+            )
+        )
+    result = ExperimentalEvidenceScoringEngine().score(session.to_draft_state(), hero, evidence)
+    assert result.experimental_score is None
+    assert dict(result.components)[kind] is None
+
+
+def test_zero_sample_pair_does_not_distort_real_pair_coverage(hero, other_hero, patch) -> None:
+    third = Hero(3, "third", "Third")
+    session = ManualDraftSession((hero, other_hero, third), patch)
+    session.add_enemy(other_hero)
+    session.add_enemy(third)
+    evidence = EvidenceSet(
+        counters=(
+            CounterEvidence(
+                hero, other_hero, Role.POSITION_4, patch, 1000, _provenance(patch), effect=0.1
+            ),
+            CounterEvidence(hero, third, Role.POSITION_4, patch, 0, _provenance(patch), effect=0.1),
+        )
+    )
+    result = ExperimentalEvidenceScoringEngine().score(session.to_draft_state(), hero, evidence)
+    assert dict(result.components)["counter"] > 0
+    assert "1 / 2 enemy heroes covered" in result.reasons[0].explanation
+
+
+def test_public_weights_require_a_positive_public_component() -> None:
+    with pytest.raises(ValueError, match="public evidence"):
+        ExperimentalWeights(meta=0, counter=0, synergy=0, familiarity=1)
+
+
+def test_zero_weight_meta_cannot_unlock_familiarity_only_score(hero, other_hero, patch) -> None:
+    session = ManualDraftSession((hero, other_hero), patch)
+    evidence = EvidenceSet(
+        role_meta=(
+            RoleMetaEvidence(hero, Role.POSITION_4, patch, 1000, 600, 0.6, _provenance(patch)),
+        )
+    )
+    personal = PersonalHeroStat(hero, 1000, 1000, 1.0, None, _provenance(patch))
+    engine = ExperimentalEvidenceScoringEngine(
+        ExperimentalWeights(meta=0, counter=0.4, synergy=0.4, familiarity=0.2)
+    )
+    assert (
+        engine.score(session.to_draft_state(), hero, evidence, (personal,)).experimental_score
+        is None
     )

@@ -14,3 +14,5 @@ Provider-specific payloads remain in adapter DTOs. Sample size and provenance su
 DOTA-004 `RoleMetaEvidence`, `CounterEvidence`, and `SynergyEvidence` additionally preserve an explicit intended P4/P5 role and optional rank scope. They may be used only when the provider actually classified/filtered that role and the patch has been cross-provider reconciled.
 
 Pair win rate is descriptive pair data, not automatically a matchup/synergy effect. Only an explicitly documented and provenance-bearing `effect` can enter recommendation scoring. P4 and P5 data are stored in separate immutable `RoleEvidenceBundle` instances; cross-role reuse is invalid.
+
+`CURRENT_WEEK` STRATZ scope records its opaque week ID, requested P4/P5 role, normalized basic rank scope, endpoint, and retrieval time. It deliberately has `patch_version = None`; an OpenDota patch must not be attached as a false claim. Pair effects retain both raw rate and verified baseline-adjusted effect.

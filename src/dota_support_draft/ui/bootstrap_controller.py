@@ -70,6 +70,9 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
                 player=bootstrap.player,
                 personal_error=bootstrap.personal_error,
                 evidence_by_role=bootstrap.evidence_by_role,
+                stratz_freshness_warning=(
+                    bootstrap.stratz_freshness.message if bootstrap.stratz_freshness else None
+                ),
             ),
         )
         self.replacement.show()

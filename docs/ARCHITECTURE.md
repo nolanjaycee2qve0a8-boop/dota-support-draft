@@ -10,6 +10,8 @@ DOTA-004 adds `STRATZ GraphQL transport → provider capability gate → P4/P5 R
 
 The manual UI refreshes immediately after a checked P4/P5 radio change, selecting only that role's local bundle. This preserves the Qt responsiveness boundary because refresh performs pure local presentation/scoring work.
 
+DOTA-004R2's live branch is `STRATZ current-week role-meta batch → immutable P4/P5 bundles → local scoring`. Bootstrap makes at most two role-meta requests plus a freshness diagnostic. `laneOutcome` is provider capability only: aliases batch at most eight candidate profiles, cache independently of selected draft picks, and is not fetched from UI mutations. DOTA-005 owns asynchronous draft-dependent pair refresh orchestration.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

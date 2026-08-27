@@ -1,8 +1,9 @@
+# ruff: noqa: E501
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from dota_support_draft.domain import Hero, Role
+from dota_support_draft.domain import EvidenceScopeKind, Hero, Role
 from dota_support_draft.providers.cache import DiskJsonCache
 from dota_support_draft.providers.errors import (
     PatchResolutionError,
@@ -28,6 +29,25 @@ class FakeTransport:
         return self.response
 
 
+class ScriptedTransport:
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = responses
+        self.calls: list[tuple[str, dict[str, object], str | None]] = []
+
+    def post(self, query, variables, token, timeout_seconds):
+        del timeout_seconds
+        self.calls.append((query, variables, token))
+        return self.responses.pop(0)
+
+
+def _stats(rows):
+    return {"data": {"heroStats": {"stats": rows}}}
+
+
+def _lane(rows):
+    return {"data": {"heroStats": {"c0": rows}}}
+
+
 def test_token_absence_has_explicit_fallback(tmp_path) -> None:
     provider = StratzProvider(DiskJsonCache(tmp_path), None)
     request = provider.__class__.__dict__["get_role_meta"]
@@ -35,14 +55,13 @@ def test_token_absence_has_explicit_fallback(tmp_path) -> None:
         request(provider, object())
 
 
-def test_unverified_capability_does_not_fan_out_per_candidate(tmp_path, patch) -> None:
-    transport = FakeTransport({"data": {"unused": True}})
+def test_role_meta_uses_one_request_for_many_candidates(tmp_path, patch) -> None:
+    transport = FakeTransport({"data": {"heroStats": {"stats": []}}})
     provider = StratzProvider(DiskJsonCache(tmp_path), "token", transport)
     candidates = tuple(Hero(index, f"hero_{index}") for index in range(1, 128))
     request = StratzEvidenceRequest(patch, Role.POSITION_5, None, candidates, (), ())
-    with pytest.raises(ProviderCapabilityUnavailable, match="schema-verified"):
-        provider.get_role_meta(request)
-    assert transport.calls == []
+    provider.get_role_meta(request)
+    assert len(transport.calls) == 1
 
 
 def test_cache_key_never_contains_token(tmp_path) -> None:
@@ -117,3 +136,147 @@ def test_malformed_role_meta_is_rejected(patch, hero) -> None:
             datetime.now(UTC),
             None,
         )
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("HERALD", "HERALD_GUARDIAN"),
+        ("ANCIENT", "LEGEND_ANCIENT"),
+        ("DIVINE_IMMORTAL", "DIVINE_IMMORTAL"),
+        (None, None),
+    ],
+)
+def test_rank_normalization(configured, expected) -> None:
+    assert StratzProvider.normalize_rank_bracket(configured) == expected
+
+
+def test_invalid_rank_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unsupported"):
+        StratzProvider.normalize_rank_bracket("ALL")
+
+
+def test_current_week_meta_query_scope_and_role_mapping(tmp_path, patch, hero, other_hero) -> None:
+    transport = ScriptedTransport(
+        [
+            _stats(
+                [
+                    {
+                        "heroId": hero.hero_id,
+                        "week": 2955,
+                        "time": 35,
+                        "position": "POSITION_4",
+                        "matchCount": 20,
+                        "winCount": 12,
+                    },
+                    {
+                        "heroId": other_hero.hero_id,
+                        "week": 2955,
+                        "time": 99,
+                        "position": "POSITION_4",
+                        "matchCount": 10,
+                        "winCount": 5,
+                    },
+                ]
+            )
+        ]
+    )
+    provider = StratzProvider(DiskJsonCache(tmp_path), "token", transport)
+    rows = provider.get_role_meta(
+        StratzEvidenceRequest(patch, Role.POSITION_4, "ANCIENT", (hero, other_hero), (), ())
+    )
+    assert len(transport.calls) == 1
+    assert transport.calls[0][1]["positionIds"] == ["POSITION_4"]
+    assert transport.calls[0][1]["bracketBasicIds"] == ["LEGEND_ANCIENT"]
+    assert rows[0].patch is None and rows[0].scope.kind is EvidenceScopeKind.CURRENT_WEEK
+    assert rows[0].scope.stratz_week_id == 2955 and rows[0].scope.patch_version is None
+
+
+def test_current_week_meta_rejects_duplicate_or_wrong_position(tmp_path, patch, hero) -> None:
+    duplicate = _stats(
+        [
+            {
+                "heroId": hero.hero_id,
+                "week": 1,
+                "position": "POSITION_5",
+                "matchCount": 1,
+                "winCount": 1,
+            },
+            {
+                "heroId": hero.hero_id,
+                "week": 1,
+                "position": "POSITION_5",
+                "matchCount": 1,
+                "winCount": 1,
+            },
+        ]
+    )
+    provider = StratzProvider(DiskJsonCache(tmp_path), "token", FakeTransport(duplicate))
+    request = StratzEvidenceRequest(patch, Role.POSITION_5, None, (hero,), (), ())
+    with pytest.raises(ProviderMalformedResponse):
+        provider.get_role_meta(request)
+
+
+def test_lane_outcome_is_baseline_adjusted_and_cached(tmp_path, patch, hero, other_hero) -> None:
+    meta = _stats(
+        [
+            {
+                "heroId": hero.hero_id,
+                "week": 7,
+                "position": "POSITION_5",
+                "matchCount": 20,
+                "winCount": 10,
+            }
+        ]
+    )
+    lane = _lane(
+        [
+            {
+                "heroId1": hero.hero_id,
+                "heroId2": other_hero.hero_id,
+                "week": 7,
+                "position": "POSITION_1",
+                "matchCount": 10,
+                "matchWinCount": 7,
+            }
+        ]
+    )
+    transport = ScriptedTransport([meta, lane])
+    provider = StratzProvider(DiskJsonCache(tmp_path), "token", transport)
+    request = StratzEvidenceRequest(patch, Role.POSITION_5, None, (hero,), (other_hero,), ())
+    rows = provider.get_synergy_evidence(request)
+    assert rows[0].pair_win_rate == 0.7 and rows[0].effect == pytest.approx(0.2)
+    assert rows[0].role is Role.POSITION_5 and len(transport.calls) == 2
+    provider.get_synergy_evidence(request)
+    assert len(transport.calls) == 2
+
+
+def test_lane_outcome_week_mismatch_degrades_without_scoring(
+    tmp_path, patch, hero, other_hero
+) -> None:
+    meta = _stats(
+        [
+            {
+                "heroId": hero.hero_id,
+                "week": 7,
+                "position": "POSITION_4",
+                "matchCount": 20,
+                "winCount": 10,
+            }
+        ]
+    )
+    lane = _lane(
+        [
+            {
+                "heroId1": hero.hero_id,
+                "heroId2": other_hero.hero_id,
+                "week": 8,
+                "position": "POSITION_1",
+                "matchCount": 10,
+                "matchWinCount": 7,
+            }
+        ]
+    )
+    provider = StratzProvider(DiskJsonCache(tmp_path), "token", ScriptedTransport([meta, lane]))
+    request = StratzEvidenceRequest(patch, Role.POSITION_4, None, (hero,), (), (other_hero,))
+    assert provider.get_counter_evidence(request) == ()

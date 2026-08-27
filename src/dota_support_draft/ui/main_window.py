@@ -27,6 +27,7 @@ def create_main_window(
     player: object | None = None,
     personal_error: str | None = None,
     evidence_by_role: RoleEvidenceBundles | None = None,
+    stratz_freshness_warning: str | None = None,
 ) -> object:
     """Thin UI binding; session owns all draft invariants and candidate eligibility."""
     from PySide6.QtCore import Qt
@@ -65,6 +66,8 @@ def create_main_window(
         layout.addWidget(QLabel(f"Personal data unavailable: {warning}"))
     evidence_label = QLabel()
     layout.addWidget(evidence_label)
+    if stratz_freshness_warning:
+        layout.addWidget(QLabel(stratz_freshness_warning))
     role_row = QHBoxLayout()
     four = QRadioButton("Position 4")
     five = QRadioButton("Position 5")
@@ -137,8 +140,8 @@ def create_main_window(
             evidence_label.setText(
                 bundle.error
                 or (
-                    "Experimental recommendation — internal ranking score, "
-                    "not a win-probability estimate."
+                    "Experimental recommendation — STRATZ current-week position evidence; "
+                    "not a calibrated win probability; not patch-isolated."
                 )
             )
             recommendations = scorer.rank(

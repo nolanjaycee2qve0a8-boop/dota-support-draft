@@ -3,8 +3,38 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from dota_support_draft.domain.models import DataProvenance, Hero, Patch, Role
+
+
+class EvidenceScopeKind(StrEnum):
+    CURRENT_WEEK = "CURRENT_WEEK"
+    GAME_VERSION = "GAME_VERSION"
+    TEST_FIXTURE = "TEST_FIXTURE"
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceScope:
+    """Statistical boundary, deliberately distinct from the active OpenDota patch."""
+
+    kind: EvidenceScopeKind
+    stratz_week_id: int | None = None
+    game_version_id: int | None = None
+    patch_version: str | None = None
+    rank_scope: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is EvidenceScopeKind.CURRENT_WEEK:
+            if self.stratz_week_id is None or self.patch_version is not None:
+                raise ValueError(
+                    "Current-week evidence requires a STRATZ week and no patch version"
+                )
+        elif self.kind is EvidenceScopeKind.GAME_VERSION and not self.patch_version:
+            raise ValueError("Game-version evidence requires a patch version")
+
+
+TEST_FIXTURE_SCOPE = EvidenceScope(EvidenceScopeKind.TEST_FIXTURE)
 
 
 def _validate_matches(matches: int, value: float) -> None:
@@ -16,13 +46,14 @@ def _validate_matches(matches: int, value: float) -> None:
 class RoleMetaEvidence:
     hero: Hero
     role: Role
-    patch: Patch
+    patch: Patch | None
     matches: int
     wins: int
     win_rate: float
     provenance: DataProvenance
     rank_bracket: str | None = None
     pick_rate: float | None = None
+    scope: EvidenceScope = TEST_FIXTURE_SCOPE
 
     def __post_init__(self) -> None:
         _validate_matches(self.matches, self.win_rate)
@@ -37,12 +68,13 @@ class CounterEvidence:
     candidate: Hero
     enemy: Hero
     role: Role
-    patch: Patch
+    patch: Patch | None
     matches: int
     provenance: DataProvenance
     pair_win_rate: float | None = None
     effect: float | None = None
     rank_bracket: str | None = None
+    scope: EvidenceScope = TEST_FIXTURE_SCOPE
 
     def __post_init__(self) -> None:
         if self.matches < 0:
@@ -58,12 +90,13 @@ class SynergyEvidence:
     candidate: Hero
     ally: Hero
     role: Role
-    patch: Patch
+    patch: Patch | None
     matches: int
     provenance: DataProvenance
     pair_win_rate: float | None = None
     effect: float | None = None
     rank_bracket: str | None = None
+    scope: EvidenceScope = TEST_FIXTURE_SCOPE
 
     def __post_init__(self) -> None:
         if self.matches < 0:

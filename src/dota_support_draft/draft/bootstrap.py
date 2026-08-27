@@ -15,7 +15,11 @@ from dota_support_draft.domain import (
 )
 from dota_support_draft.providers.base import DotaDataProvider
 from dota_support_draft.providers.errors import ProviderError
-from dota_support_draft.providers.stratz import StratzEvidenceRequest, StratzProvider
+from dota_support_draft.providers.stratz import (
+    GameVersionDiagnostic,
+    StratzEvidenceRequest,
+    StratzProvider,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +32,8 @@ class DraftBootstrapData:
     evidence_by_role: RoleEvidenceBundles = RoleEvidenceBundles(
         RoleEvidenceBundle(Role.POSITION_4), RoleEvidenceBundle(Role.POSITION_5)
     )
+    stratz_freshness: GameVersionDiagnostic | None = None
+    stratz_freshness_error: str | None = None
 
 
 class DraftBootstrapService:
@@ -58,8 +64,27 @@ class DraftBootstrapService:
                 except ProviderError as error:
                     personal_error = str(error)
         evidence_by_role = self._load_recommendation_evidence(patch, heroes)
+        freshness: GameVersionDiagnostic | None = None
+        freshness_error: str | None = None
+        diagnostic = (
+            getattr(self.stratz_provider, "game_version_diagnostic", None)
+            if self.stratz_provider is not None
+            else None
+        )
+        if callable(diagnostic):
+            try:
+                freshness = diagnostic(patch)
+            except ProviderError as error:
+                freshness_error = str(error)
         return DraftBootstrapData(
-            patch, heroes, player, personal_stats, personal_error, evidence_by_role
+            patch,
+            heroes,
+            player,
+            personal_stats,
+            personal_error,
+            evidence_by_role,
+            freshness,
+            freshness_error,
         )
 
     def _load_recommendation_evidence(

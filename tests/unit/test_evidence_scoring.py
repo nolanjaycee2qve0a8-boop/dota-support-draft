@@ -6,6 +6,8 @@ from dota_support_draft.domain import (
     CounterEvidence,
     DataProvenance,
     DraftState,
+    EvidenceScope,
+    EvidenceScopeKind,
     EvidenceSet,
     Hero,
     HeroPick,
@@ -67,6 +69,25 @@ def test_patch_mismatch_is_neutral_not_current_evidence(hero, other_hero, patch)
         .experimental_score
         is None
     )
+
+
+def test_current_week_meta_can_score_when_open_dota_patch_is_newer(hero, other_hero, patch) -> None:
+    newer_patch = type(patch)("new", "7.41", patch.starts_at)
+    evidence = RoleMetaEvidence(
+        hero,
+        Role.POSITION_5,
+        None,
+        100,
+        60,
+        0.6,
+        _provenance(patch),
+        scope=EvidenceScope(EvidenceScopeKind.CURRENT_WEEK, 2955),
+    )
+    result = ExperimentalEvidenceScoringEngine().score(
+        _draft(hero, other_hero, newer_patch), hero, EvidenceSet(role_meta=(evidence,))
+    )
+    assert result.experimental_score is not None
+    assert "Current-week Position 5 meta" in result.reasons[0].explanation
 
 
 def test_counter_and_synergy_are_sample_weighted(hero, other_hero, patch) -> None:

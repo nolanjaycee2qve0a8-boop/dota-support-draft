@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from dota_support_draft.domain import (
     CounterEvidence,
     DraftState,
+    EvidenceScopeKind,
     EvidenceSet,
     Hero,
     PersonalHeroStat,
@@ -181,7 +182,7 @@ class ExperimentalEvidenceScoringEngine:
                 for row in rows
                 if row.hero == candidate
                 and row.role == draft.intended_role
-                and row.patch == draft.patch
+                and self._scope_applies(row.scope.kind, row.scope.patch_version, row.patch, draft)
             ),
             None,
         )
@@ -198,10 +199,7 @@ class ExperimentalEvidenceScoringEngine:
                 ReasonPolarity.POSITIVE if value >= 0 else ReasonPolarity.NEGATIVE,
                 "meta",
                 value,
-                (
-                    f"Current {item.role.value} meta: {item.win_rate:.0%} "
-                    f"across {item.matches} matches."
-                ),
+                (f"{self._meta_label(item)}: {item.win_rate:.0%} across {item.matches} matches."),
             ),
         )
 
@@ -211,7 +209,7 @@ class ExperimentalEvidenceScoringEngine:
         return self._pair_component(
             candidate,
             draft.intended_role,
-            draft.patch,
+            draft,
             tuple(pick.hero for pick in draft.enemy_picks),
             rows,
             self.weights.counter,
@@ -225,7 +223,7 @@ class ExperimentalEvidenceScoringEngine:
         return self._pair_component(
             candidate,
             draft.intended_role,
-            draft.patch,
+            draft,
             tuple(pick.hero for pick in draft.allied_picks),
             rows,
             self.weights.synergy,
@@ -237,7 +235,7 @@ class ExperimentalEvidenceScoringEngine:
         self,
         candidate: Hero,
         role: Role,
-        patch: object,
+        draft: DraftState,
         related_heroes: tuple[Hero, ...],
         rows: tuple[CounterEvidence, ...] | tuple[SynergyEvidence, ...],
         weight: float,
@@ -249,7 +247,7 @@ class ExperimentalEvidenceScoringEngine:
             for row in rows
             if row.candidate == candidate
             and row.role == role
-            and row.patch == patch
+            and self._scope_applies(row.scope.kind, row.scope.patch_version, row.patch, draft)
             and row.effect is not None
             and row.matches > 0
             and (row.enemy if isinstance(row, CounterEvidence) else row.ally) in related_heroes
@@ -283,6 +281,22 @@ class ExperimentalEvidenceScoringEngine:
                 ),
             ),
         )
+
+    @staticmethod
+    def _scope_applies(
+        kind: EvidenceScopeKind, patch_version: str | None, legacy_patch: object, draft: DraftState
+    ) -> bool:
+        if kind is EvidenceScopeKind.CURRENT_WEEK:
+            return True
+        if kind is EvidenceScopeKind.GAME_VERSION:
+            return patch_version == draft.patch.version
+        return legacy_patch == draft.patch
+
+    @staticmethod
+    def _meta_label(item: RoleMetaEvidence) -> str:
+        if item.scope.kind is EvidenceScopeKind.CURRENT_WEEK:
+            return f"Current-week Position {4 if item.role is Role.POSITION_4 else 5} meta"
+        return f"Current {item.role.value} meta"
 
     def _familiarity(
         self, candidate: Hero, rows: tuple[PersonalHeroStat, ...]

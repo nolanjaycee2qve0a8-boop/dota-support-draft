@@ -1,8 +1,5 @@
-"""Read-only STRATZ GraphQL boundary.
-
-The only raw GraphQL objects live in this module.  Callers receive typed evidence or
-an explicit provider error; a failed/unknown query never becomes zero evidence.
-"""
+"""Read-only, bounded STRATZ GraphQL provider for current-week position evidence."""
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -11,13 +8,16 @@ import json
 import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from enum import StrEnum
+from typing import Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from dota_support_draft.domain import (
     CounterEvidence,
     DataProvenance,
+    EvidenceScope,
+    EvidenceScopeKind,
     Hero,
     Patch,
     Role,
@@ -38,6 +38,12 @@ from dota_support_draft.providers.errors import (
 
 STRATZ_GRAPHQL_URL = "https://api.stratz.com/graphql"
 USER_AGENT = "DotaSupportDraft/0.1"
+ROLE_META_QUERY = """query CurrentWeekRoleMeta($heroIds:[Short],$positionIds:[MatchPlayerPositionType],$bracketBasicIds:[RankBracketBasicEnum]) {
+  heroStats { stats(heroIds:$heroIds, positionIds:$positionIds, bracketBasicIds:$bracketBasicIds, groupByTime:false, groupByPosition:true, groupByBracket:false) { heroId week time position bracketBasicIds matchCount remainingMatchCount winCount } }
+}"""
+GAME_VERSIONS_QUERY = (
+    "query StratzGameVersions { constants { gameVersions { id name asOfDateTime } } }"
+)
 
 
 class GraphQLTransport(Protocol):
@@ -47,8 +53,6 @@ class GraphQLTransport(Protocol):
 
 
 class UrllibGraphQLTransport:
-    """Synchronous transport, injected in tests and never invoked at import time."""
-
     def post(
         self, query: str, variables: dict[str, object], token: str | None, timeout_seconds: float
     ) -> object:
@@ -57,7 +61,7 @@ class UrllibGraphQLTransport:
             headers["Authorization"] = f"Bearer {token}"
         request = Request(
             STRATZ_GRAPHQL_URL,
-            data=json.dumps({"query": query, "variables": variables}).encode("utf-8"),
+            data=json.dumps({"query": query, "variables": variables}).encode(),
             headers=headers,
             method="POST",
         )
@@ -88,6 +92,19 @@ class StratzGameVersion:
     name: str
 
 
+class GameVersionFreshness(StrEnum):
+    MATCHED = "MATCHED"
+    STRATZ_CATALOG_LAGGING = "STRATZ_CATALOG_LAGGING"
+    UNRESOLVED = "UNRESOLVED"
+
+
+@dataclass(frozen=True, slots=True)
+class GameVersionDiagnostic:
+    state: GameVersionFreshness
+    latest: StratzGameVersion | None
+    message: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class StratzEvidenceRequest:
     patch: Patch
@@ -99,18 +116,12 @@ class StratzEvidenceRequest:
 
 
 class StratzProvider:
-    """Position-aware provider with a deliberately small, bounded query surface.
+    """Production current-week position stats; global matchUp is intentionally excluded."""
 
-    `winWeek` is the current GraphQL Explorer contract recorded in documentation.
-    Its response has no verified game-version filter, so it is intentionally *not*
-    normalized as current-patch evidence until a game-version mapping is supplied.
-    Counter/synergy operation position filtering is not verified and is therefore
-    unavailable rather than mislabeled P4/P5 evidence.
-    """
-
-    META_TTL = timedelta(hours=3)
-    PAIR_TTL = timedelta(hours=3)
+    META_TTL = timedelta(minutes=45)
+    PAIR_TTL = timedelta(minutes=45)
     IDENTITY_TTL = timedelta(hours=6)
+    PAIR_BATCH_SIZE = 8
 
     def __init__(
         self,
@@ -119,10 +130,8 @@ class StratzProvider:
         transport: GraphQLTransport | None = None,
         timeout_seconds: float = 10.0,
     ) -> None:
-        self._cache = cache
-        self._token = token.strip() if token else None
-        self._transport = transport or UrllibGraphQLTransport()
-        self._timeout = timeout_seconds
+        self._cache, self._token = cache, token.strip() if token else None
+        self._transport, self._timeout = transport or UrllibGraphQLTransport(), timeout_seconds
 
     @property
     def configured(self) -> bool:
@@ -130,22 +139,21 @@ class StratzProvider:
 
     @staticmethod
     def cache_identity(operation: str, variables: dict[str, object]) -> str:
-        """Tokens are deliberately absent from cache identity and disk payloads."""
         normalized = json.dumps(variables, sort_keys=True, separators=(",", ":"))
         return f"stratz:{operation}:{hashlib.sha256(normalized.encode()).hexdigest()}"
 
     def _query(
         self, operation: str, query: str, variables: dict[str, object], ttl: timedelta
     ) -> CachedJson:
-        if not self._token:
-            raise ProviderCapabilityUnavailable("STRATZ not configured (STRATZ_API_TOKEN absent)")
+        self._require_configuration()
         identity = self.cache_identity(operation, variables)
         cached = self._cache.read(identity, ttl)
         if cached is not None:
             return cached
         retrieved_at = datetime.now(UTC)
-        raw = self._transport.post(query, variables, self._token, self._timeout)
-        payload = self._validate_graphql(raw)
+        payload = self._validate_graphql(
+            self._transport.post(query, variables, self._token, self._timeout)
+        )
         self._cache.write(identity, payload, retrieved_at)
         return CachedJson(payload, retrieved_at, from_cache=False)
 
@@ -153,48 +161,315 @@ class StratzProvider:
     def _validate_graphql(raw: object) -> dict[str, object]:
         if not isinstance(raw, dict):
             raise ProviderMalformedResponse("STRATZ GraphQL response must be an object")
-        errors = raw.get("errors")
-        if errors:
+        if raw.get("errors"):
             raise ProviderGraphQLError("STRATZ GraphQL returned errors")
         data = raw.get("data")
         if not isinstance(data, dict):
             raise ProviderMalformedResponse("STRATZ GraphQL response lacks object data")
         return data
 
-    def get_role_meta(self, request: StratzEvidenceRequest) -> tuple[RoleMetaEvidence, ...]:
-        """Fetch one bounded, role-specific batch after explicit patch verification.
+    @staticmethod
+    def _role_position(role: Role) -> str:
+        if role in {Role.POSITION_4, Role.POSITION_5}:
+            return role.value
+        raise ValueError("Only Position 4 and Position 5 are supported")
 
-        The current publicly inspectable contract did not prove a game-version
-        argument for this operation.  Refusing it protects against treating a
-        rolling window as current-patch data.
-        """
-        del request
+    @staticmethod
+    def normalize_rank_bracket(value: str | None) -> str | None:
+        if not value or not value.strip():
+            return None
+        value = value.strip().upper()
+        direct = {
+            "UNCALIBRATED",
+            "HERALD_GUARDIAN",
+            "CRUSADER_ARCHON",
+            "LEGEND_ANCIENT",
+            "DIVINE_IMMORTAL",
+        }
+        fine = {
+            "HERALD": "HERALD_GUARDIAN",
+            "GUARDIAN": "HERALD_GUARDIAN",
+            "CRUSADER": "CRUSADER_ARCHON",
+            "ARCHON": "CRUSADER_ARCHON",
+            "LEGEND": "LEGEND_ANCIENT",
+            "ANCIENT": "LEGEND_ANCIENT",
+            "DIVINE": "DIVINE_IMMORTAL",
+            "IMMORTAL": "DIVINE_IMMORTAL",
+        }
+        if value in direct:
+            return value
+        if value in fine:
+            return fine[value]
+        raise ValueError(f"Unsupported STRATZ rank bracket: {value}")
+
+    def get_role_meta(self, request: StratzEvidenceRequest) -> tuple[RoleMetaEvidence, ...]:
         self._require_configuration()
-        raise ProviderCapabilityUnavailable(
-            "STRATZ role-meta patch filter is not yet schema-verified; evidence withheld"
+        if not request.candidates:
+            return ()
+        rank = self.normalize_rank_bracket(request.rank_bracket)
+        variables: dict[str, object] = {
+            "heroIds": [hero.hero_id for hero in request.candidates],
+            "positionIds": [self._role_position(request.role)],
+            "bracketBasicIds": [rank] if rank else None,
+        }
+        result = self._query("current_week_role_meta", ROLE_META_QUERY, variables, self.META_TTL)
+        return self.normalize_current_week_role_meta_rows(
+            self._nested_list(result.payload, "heroStats", "stats"),
+            request.candidates,
+            request.role,
+            result.retrieved_at,
+            rank,
+        )
+
+    @staticmethod
+    def _nested_list(payload: dict[str, object], *keys: str) -> list[object]:
+        current: object = payload
+        for key in keys:
+            if not isinstance(current, dict):
+                raise ProviderMalformedResponse("STRATZ response has unexpected object shape")
+            current = current.get(key)
+        if not isinstance(current, list):
+            raise ProviderMalformedResponse("STRATZ response expected a list")
+        return current
+
+    @staticmethod
+    def normalize_current_week_role_meta_rows(
+        rows: object,
+        heroes: tuple[Hero, ...],
+        role: Role,
+        retrieved_at: datetime,
+        rank_bracket: str | None,
+    ) -> tuple[RoleMetaEvidence, ...]:
+        if not isinstance(rows, list):
+            raise ProviderMalformedResponse("STRATZ role meta rows must be a list")
+        known, out, seen, weeks = {hero.hero_id: hero for hero in heroes}, [], set(), set()
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ProviderMalformedResponse("STRATZ role meta row must be an object")
+            try:
+                hero_id, week, matches, wins = (
+                    int(row["heroId"]),
+                    int(row["week"]),
+                    int(row["matchCount"]),
+                    int(row["winCount"]),
+                )
+                if (
+                    hero_id not in known
+                    or hero_id in seen
+                    or row["position"] != StratzProvider._role_position(role)
+                    or matches < 0
+                    or not 0 <= wins <= matches
+                ):
+                    raise ValueError
+            except (KeyError, TypeError, ValueError) as error:
+                raise ProviderMalformedResponse(
+                    "Invalid or ambiguous STRATZ current-week role meta row"
+                ) from error
+            seen.add(hero_id)
+            weeks.add(week)
+            out.append((known[hero_id], week, matches, wins))
+        if len(weeks) > 1:
+            raise ProviderMalformedResponse("STRATZ current-week rows span multiple week IDs")
+        return tuple(
+            RoleMetaEvidence(
+                hero,
+                role,
+                None,
+                matches,
+                wins,
+                wins / matches if matches else 0.0,
+                DataProvenance(
+                    "STRATZ",
+                    retrieved_at,
+                    "ROLE_META_CURRENT_WEEK_POSITION",
+                    None,
+                    matches,
+                    STRATZ_GRAPHQL_URL,
+                ),
+                rank_bracket,
+                scope=EvidenceScope(EvidenceScopeKind.CURRENT_WEEK, week, rank_scope=rank_bracket),
+            )
+            for hero, week, matches, wins in sorted(out, key=lambda item: item[0].hero_id)
+        )
+
+    def get_game_versions(self) -> tuple[StratzGameVersion, ...]:
+        result = self._query("game_versions", GAME_VERSIONS_QUERY, {}, self.IDENTITY_TTL)
+        rows = self._nested_list(result.payload, "constants", "gameVersions")
+        output = []
+        for row in rows:
+            if (
+                not isinstance(row, dict)
+                or not isinstance(row.get("id"), (str, int))
+                or not isinstance(row.get("name"), str)
+            ):
+                raise ProviderMalformedResponse("Invalid STRATZ gameVersion row")
+            output.append(StratzGameVersion(str(row["id"]), row["name"]))
+        return tuple(output)
+
+    def game_version_diagnostic(self, patch: Patch) -> GameVersionDiagnostic:
+        versions = self.get_game_versions()
+        latest = versions[0] if versions else None
+        if len(tuple(version for version in versions if version.name == patch.version)) == 1:
+            return GameVersionDiagnostic(GameVersionFreshness.MATCHED, latest)
+        if latest:
+            return GameVersionDiagnostic(
+                GameVersionFreshness.STRATZ_CATALOG_LAGGING,
+                latest,
+                f"STRATZ current-week position evidence is active; game-version catalog does not yet contain OpenDota patch {patch.version}.",
+            )
+        return GameVersionDiagnostic(
+            GameVersionFreshness.UNRESOLVED, None, "STRATZ game-version catalog was empty."
+        )
+
+    def _lane_query(
+        self, candidates: tuple[Hero, ...], role: Role, rank: str | None, is_with: bool
+    ) -> tuple[str, dict[str, object]]:
+        declarations, fields = [], []
+        variables: dict[str, object] = {
+            "positionIds": [self._role_position(role)],
+            "bracketBasicIds": [rank] if rank else None,
+        }
+        for index, hero in enumerate(candidates):
+            declarations.append(f"$heroId{index}:Short!")
+            fields.append(
+                f"c{index}:laneOutcome(heroId:$heroId{index},isWith:{str(is_with).lower()},positionIds:$positionIds,bracketBasicIds:$bracketBasicIds){{heroId1 heroId2 week position matchCount drawCount winCount lossCount stompWinCount stompLossCount matchWinCount}}"
+            )
+            variables[f"heroId{index}"] = hero.hero_id
+        query = f"query CurrentWeekLaneProfiles({','.join(declarations)},$positionIds:[MatchPlayerPositionType],$bracketBasicIds:[RankBracketBasicEnum]){{heroStats{{{' '.join(fields)}}}}}"
+        return query, variables
+
+    def _lane_profiles(
+        self, candidates: tuple[Hero, ...], role: Role, rank: str | None, is_with: bool
+    ) -> tuple[tuple[Hero, list[object], datetime], ...]:
+        out = []
+        ordered = tuple(sorted(candidates, key=lambda hero: hero.hero_id))
+        for start in range(0, len(ordered), self.PAIR_BATCH_SIZE):
+            batch = ordered[start : start + self.PAIR_BATCH_SIZE]
+            query, variables = self._lane_query(batch, role, rank, is_with)
+            result = self._query(
+                "lane_profiles_with" if is_with else "lane_profiles_against",
+                query,
+                variables,
+                self.PAIR_TTL,
+            )
+            stats = result.payload.get("heroStats")
+            if not isinstance(stats, dict):
+                raise ProviderMalformedResponse("STRATZ laneOutcome response has unexpected shape")
+            for index, hero in enumerate(batch):
+                rows = stats.get(f"c{index}")
+                if not isinstance(rows, list):
+                    raise ProviderMalformedResponse("STRATZ laneOutcome alias is not a list")
+                out.append((hero, rows, result.retrieved_at))
+        return tuple(out)
+
+    def _pair_evidence(
+        self, request: StratzEvidenceRequest, is_with: bool
+    ) -> tuple[CounterEvidence, ...] | tuple[SynergyEvidence, ...]:
+        related = request.allies if is_with else request.enemies
+        if not request.candidates or not related:
+            return ()
+        rank = self.normalize_rank_bracket(request.rank_bracket)
+        baselines = {row.hero: row for row in self.get_role_meta(request)}
+        wanted = {hero.hero_id: hero for hero in related}
+        out: list[CounterEvidence | SynergyEvidence] = []
+        for candidate, rows, retrieved_at in self._lane_profiles(
+            request.candidates, request.role, rank, is_with
+        ):
+            baseline = baselines.get(candidate)
+            if (
+                baseline is None
+                or baseline.scope.kind is not EvidenceScopeKind.CURRENT_WEEK
+                or baseline.scope.rank_scope != rank
+            ):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ProviderMalformedResponse("STRATZ laneOutcome row must be an object")
+                try:
+                    first, second, week, matches, wins = (
+                        int(row["heroId1"]),
+                        int(row["heroId2"]),
+                        int(row["week"]),
+                        int(row["matchCount"]),
+                        int(row["matchWinCount"]),
+                    )
+                    if (
+                        first != candidate.hero_id
+                        or second not in wanted
+                        or matches < 0
+                        or not 0 <= wins <= matches
+                    ):
+                        raise ValueError
+                except (KeyError, TypeError, ValueError) as error:
+                    raise ProviderMalformedResponse("Invalid STRATZ laneOutcome row") from error
+                if not matches or week != baseline.scope.stratz_week_id:
+                    continue
+                rate = wins / matches
+                scope = EvidenceScope(EvidenceScopeKind.CURRENT_WEEK, week, rank_scope=rank)
+                provenance = DataProvenance(
+                    "STRATZ",
+                    retrieved_at,
+                    "LANE_OUTCOME_CURRENT_WEEK_POSITION",
+                    None,
+                    matches,
+                    STRATZ_GRAPHQL_URL,
+                )
+                if is_with:
+                    out.append(
+                        SynergyEvidence(
+                            candidate,
+                            wanted[second],
+                            request.role,
+                            None,
+                            matches,
+                            provenance,
+                            rate,
+                            rate - baseline.win_rate,
+                            rank,
+                            scope,
+                        )
+                    )
+                else:
+                    out.append(
+                        CounterEvidence(
+                            candidate,
+                            wanted[second],
+                            request.role,
+                            None,
+                            matches,
+                            provenance,
+                            rate,
+                            rate - baseline.win_rate,
+                            rank,
+                            scope,
+                        )
+                    )
+        return cast(
+            tuple[CounterEvidence, ...] | tuple[SynergyEvidence, ...],
+            tuple(
+                sorted(
+                    out,
+                    key=lambda row: (
+                        row.candidate.hero_id,
+                        (row.ally if isinstance(row, SynergyEvidence) else row.enemy).hero_id,
+                    ),
+                )
+            ),
         )
 
     def get_counter_evidence(self, request: StratzEvidenceRequest) -> tuple[CounterEvidence, ...]:
-        del request
-        self._require_configuration()
-        raise ProviderCapabilityUnavailable(
-            "STRATZ matchup position filter is not yet schema-verified; evidence withheld"
-        )
+        return cast(tuple[CounterEvidence, ...], self._pair_evidence(request, False))
 
     def get_synergy_evidence(self, request: StratzEvidenceRequest) -> tuple[SynergyEvidence, ...]:
-        del request
-        self._require_configuration()
-        raise ProviderCapabilityUnavailable(
-            "STRATZ synergy position filter is not yet schema-verified; evidence withheld"
-        )
+        return cast(tuple[SynergyEvidence, ...], self._pair_evidence(request, True))
 
     def probe_query(
         self, query: str, variables: dict[str, object] | None = None
     ) -> dict[str, object]:
-        """Run an explicit opt-in diagnostic without caching its raw schema response."""
         self._require_configuration()
-        raw = self._transport.post(query, variables or {}, self._token, self._timeout)
-        return self._validate_graphql(raw)
+        return self._validate_graphql(
+            self._transport.post(query, variables or {}, self._token, self._timeout)
+        )
 
     @staticmethod
     def normalize_role_meta_rows(
@@ -205,32 +480,23 @@ class StratzProvider:
         retrieved_at: datetime,
         rank_bracket: str | None,
     ) -> tuple[RoleMetaEvidence, ...]:
-        """Validate the documented `heroId/matchCount/winCount` DTO shape.
-
-        This normalizer is deliberately separate from query eligibility: it is
-        usable only after the calling operation has verified patch semantics.
-        """
         if not isinstance(rows, list):
             raise ProviderMalformedResponse("STRATZ role meta rows must be a list")
-        known = {hero.hero_id: hero for hero in heroes}
-        normalized: list[RoleMetaEvidence] = []
+        known, out = {hero.hero_id: hero for hero in heroes}, []
         for row in rows:
-            if not isinstance(row, dict):
-                raise ProviderMalformedResponse("STRATZ role meta row must be an object")
             try:
                 hero_id, matches, wins = (
                     int(row["heroId"]),
                     int(row["matchCount"]),
                     int(row["winCount"]),
                 )
-                hero = known[hero_id]
-                if matches < 0 or wins < 0 or wins > matches:
+                if hero_id not in known or matches < 0 or not 0 <= wins <= matches:
                     raise ValueError
             except (KeyError, TypeError, ValueError) as error:
                 raise ProviderMalformedResponse("Invalid STRATZ role meta row") from error
-            normalized.append(
+            out.append(
                 RoleMetaEvidence(
-                    hero,
+                    known[hero_id],
                     role,
                     patch,
                     matches,
@@ -239,15 +505,20 @@ class StratzProvider:
                     DataProvenance(
                         "STRATZ",
                         retrieved_at,
-                        "ROLE_META_PATCH_VERIFIED",
+                        "ROLE_META_GAME_VERSION",
                         patch.version,
                         matches,
                         STRATZ_GRAPHQL_URL,
                     ),
                     rank_bracket,
+                    scope=EvidenceScope(
+                        EvidenceScopeKind.GAME_VERSION,
+                        patch_version=patch.version,
+                        rank_scope=rank_bracket,
+                    ),
                 )
             )
-        return tuple(sorted(normalized, key=lambda item: item.hero.hero_id))
+        return tuple(sorted(out, key=lambda item: item.hero.hero_id))
 
     @staticmethod
     def resolve_patch(open_dota_patch: Patch, versions: tuple[StratzGameVersion, ...]) -> str:

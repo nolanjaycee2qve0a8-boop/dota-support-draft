@@ -1,5 +1,7 @@
 from .evidence import (
     CounterEvidence,
+    EvidenceScope,
+    EvidenceScopeKind,
     EvidenceSet,
     RoleEvidenceBundle,
     RoleEvidenceBundles,
@@ -47,6 +49,8 @@ __all__ = [
     "Role",
     "TeamSide",
     "CounterEvidence",
+    "EvidenceScope",
+    "EvidenceScopeKind",
     "EvidenceSet",
     "RoleMetaEvidence",
     "RoleEvidenceBundle",

@@ -10,7 +10,7 @@ DOTA-002 adds a read-only OpenDota provider with explicit cache/provenance and u
 
 DOTA-003 adds manual picks/bans and an immediately updating legal candidate list. Candidate ordering may reflect all-time personal familiarity; it is not recommendation scoring.
 
-DOTA-004 adds a position-aware experimental evidence/scoring boundary. STRATZ is optional: with no token or no schema-verified position/patch query, the app explicitly stays in manual legal/familiarity mode and shows no fake recommendation score. See [STRATZ integration](docs/STRATZ_INTEGRATION.md) and [recommendation evidence](docs/RECOMMENDATION_EVIDENCE.md).
+DOTA-004 adds a position-aware experimental evidence/scoring boundary. STRATZ is optional: current-week P4/P5 meta is loaded only with a token, remains explicitly non-patch-isolated, and failures preserve manual drafting. Draft-dependent pair refresh remains DOTA-005 work. See [STRATZ integration](docs/STRATZ_INTEGRATION.md) and [recommendation evidence](docs/RECOMMENDATION_EVIDENCE.md).
 
 ## Run
 
@@ -34,7 +34,7 @@ python -m dota_support_draft.smoke
 
 ## Optional STRATZ smoke
 
-The DOTA-004 STRATZ capability is intentionally withheld until its live GraphQL schema is verified. With no token, the only honest smoke result is `NOT RUN / TOKEN NOT CONFIGURED`; do not treat this as a successful provider check.
+This performs compact live current-week P4/P5 and laneOutcome checks only when a token is supplied. It does not print a token or raw payloads.
 
 ```powershell
 python -m dota_support_draft.stratz_smoke

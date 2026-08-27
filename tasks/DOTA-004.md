@@ -10,4 +10,6 @@ DOTA-004R1.1 closes immediate role-switch refresh, zero-sample pair, and zero-pu
 
 DOTA-004R1.2 deepens the introspection type-reference selection and makes bounded type discovery multi-hop. It remains probe-only and does not authorize production query implementation.
 
+DOTA-004R1.3 discovers the actual GraphQL query-root name before probing its fields, fixing STRATZ's `DotaQuery` root without hardcoding it.
+
 Non-goals remain GSI, OCR, overlays, process access, game automation, ML, and calibrated win probabilities.

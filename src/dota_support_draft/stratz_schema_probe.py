@@ -7,7 +7,7 @@ from collections.abc import Iterable
 
 from dota_support_draft.config import Settings
 from dota_support_draft.providers.cache import DiskJsonCache
-from dota_support_draft.providers.errors import ProviderError
+from dota_support_draft.providers.errors import ProviderError, ProviderMalformedResponse
 from dota_support_draft.providers.stratz import StratzProvider
 
 MAX_ROOT_FIELDS = 12
@@ -47,10 +47,15 @@ kind name ofType {
 }
 """
 
-ROOT_PROBE_QUERY = f"""
-query DotaSupportDraftRootSchemaProbe {{
-  __schema {{ queryType {{ name }} }}
-  __type(name: "Query") {{
+ROOT_DISCOVERY_QUERY = """
+query DotaSupportDraftRootDiscoveryProbe {
+  __schema { queryType { name } }
+}
+"""
+
+ROOT_TYPE_PROBE_QUERY = f"""
+query DotaSupportDraftRootTypeProbe($name: String!) {{
+  __type(name: $name) {{
     fields {{
       name
       args {{ name type {{ {TYPE_REFERENCE} }} }}
@@ -149,10 +154,18 @@ def _discovered_types(fields: Iterable[object]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(discovered))
 
 
-def summarize_root(data: dict[str, object]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def query_root_name(data: dict[str, object]) -> str:
     schema = data.get("__schema")
     query_type = schema.get("queryType") if isinstance(schema, dict) else None
-    query_name = query_type.get("name") if isinstance(query_type, dict) else "unknown"
+    query_name = query_type.get("name") if isinstance(query_type, dict) else None
+    if not isinstance(query_name, str) or not query_name.strip():
+        raise ProviderMalformedResponse("GraphQL introspection lacks a valid query root type name")
+    return query_name
+
+
+def summarize_root(
+    query_name: str, data: dict[str, object]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     query = data.get("__type")
     fields = query.get("fields") if isinstance(query, dict) else None
     if not isinstance(fields, list):
@@ -197,6 +210,14 @@ def _limited(values: Iterable[str], limit: int) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))[:limit]
 
 
+def discover_root(provider: StratzProvider) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Use the server-reported GraphQL query root, never a hardcoded root name."""
+    root_name = query_root_name(provider.probe_query(ROOT_DISCOVERY_QUERY))
+    return summarize_root(
+        root_name, provider.probe_query(ROOT_TYPE_PROBE_QUERY, {"name": root_name})
+    )
+
+
 def discover_types(provider: StratzProvider, root_types: Iterable[str]) -> tuple[str, ...]:
     """Bounded breadth-first type traversal, returning compact safe report lines."""
     queue = deque((type_name, 1) for type_name in _limited(root_types, MAX_SECONDARY_TYPES))
@@ -225,7 +246,7 @@ def main() -> int:
         return 2
     provider = StratzProvider(DiskJsonCache(settings.cache_directory), settings.stratz_api_token)
     try:
-        root_lines, root_types = summarize_root(provider.probe_query(ROOT_PROBE_QUERY))
+        root_lines, root_types = discover_root(provider)
         for line in (*root_lines, *discover_types(provider, root_types)):
             print(line)
     except ProviderError as error:

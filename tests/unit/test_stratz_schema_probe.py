@@ -1,9 +1,15 @@
+import pytest
+
+from dota_support_draft.providers.errors import ProviderMalformedResponse
 from dota_support_draft.stratz_schema_probe import (
     MAX_SECONDARY_TYPES,
     MAX_TYPE_FIELDS,
-    ROOT_PROBE_QUERY,
+    ROOT_DISCOVERY_QUERY,
+    ROOT_TYPE_PROBE_QUERY,
     TYPE_PROBE_QUERY,
+    discover_root,
     discover_types,
+    query_root_name,
     render_type,
     summarize_root,
     summarize_type,
@@ -22,13 +28,15 @@ def _field(name: str, type_node: dict[str, object], args=()):
 
 
 def test_actual_queries_request_sufficient_nested_type_reference_depth() -> None:
-    assert ROOT_PROBE_QUERY.count("ofType") >= 5
+    assert "__type" not in ROOT_DISCOVERY_QUERY
+    assert ROOT_TYPE_PROBE_QUERY.count("ofType") >= 5
     assert TYPE_PROBE_QUERY.count("ofType") >= 5
     assert render_type(_wrapped("HeroStats", 3)) == "[[[HeroStats!]!]!]"
 
 
 def test_constants_is_relevant_and_signatures_include_types() -> None:
     lines, type_names = summarize_root(
+        "DotaQuery",
         {
             "__schema": {"queryType": {"name": "Query"}},
             "__type": {
@@ -37,9 +45,9 @@ def test_constants_is_relevant_and_signatures_include_types() -> None:
                     _field("viewer", {"kind": "OBJECT", "name": "Viewer"}),
                 ]
             },
-        }
+        },
     )
-    assert lines == ("Query type: Query", "  constants() -> Constants")
+    assert lines == ("Query type: DotaQuery", "  constants() -> Constants")
     assert type_names == ("Constants",)
 
 
@@ -108,6 +116,34 @@ def test_discovery_and_type_output_are_bounded_and_malformed_safe() -> None:
 
 def test_rendered_probe_output_never_contains_fake_token() -> None:
     lines, _ = summarize_root(
-        {"__schema": {"queryType": {"name": "Query"}}, "__type": {"fields": []}}
+        "DotaQuery", {"__schema": {"queryType": {"name": "Query"}}, "__type": {"fields": []}}
     )
     assert "secret-token" not in "\n".join(lines)
+
+
+class RootDiscoveryProvider:
+    def __init__(self, root_name: str) -> None:
+        self.root_name = root_name
+        self.calls: list[tuple[str, dict[str, object] | None]] = []
+
+    def probe_query(self, query, variables=None):
+        self.calls.append((query, variables))
+        if query == ROOT_DISCOVERY_QUERY:
+            return {"__schema": {"queryType": {"name": self.root_name}}}
+        return {"__type": {"fields": []}}
+
+
+def test_root_discovery_uses_server_reported_name_without_query_assumption() -> None:
+    provider = RootDiscoveryProvider("DotaQuery")
+    lines, _ = discover_root(provider)
+    assert lines[0] == "Query type: DotaQuery"
+    assert provider.calls[1][0] == ROOT_TYPE_PROBE_QUERY
+    assert provider.calls[1][1] == {"name": "DotaQuery"}
+    assert 'name: "Query"' not in ROOT_TYPE_PROBE_QUERY
+
+
+def test_arbitrary_root_name_and_malformed_root_are_handled_safely() -> None:
+    provider = RootDiscoveryProvider("AnotherQueryRoot")
+    assert discover_root(provider)[0][0] == "Query type: AnotherQueryRoot"
+    with pytest.raises(ProviderMalformedResponse):
+        query_root_name({"__schema": {"queryType": {"name": None}}})

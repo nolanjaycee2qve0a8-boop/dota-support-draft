@@ -12,6 +12,7 @@ from dota_support_draft.providers.errors import (
     ProviderMalformedResponse,
 )
 from dota_support_draft.providers.stratz import (
+    GameVersionFreshness,
     StratzEvidenceRequest,
     StratzGameVersion,
     StratzProvider,
@@ -46,6 +47,29 @@ def _stats(rows):
 
 def _lane(rows):
     return {"data": {"heroStats": {"c0": rows}}}
+
+
+def _meta_row(hero: Hero, role: Role, week: int = 7) -> dict[str, object]:
+    return {
+        "heroId": hero.hero_id,
+        "week": week,
+        "position": role.value,
+        "matchCount": 20,
+        "winCount": 10,
+    }
+
+
+def _lane_row(first: int, second: int, **overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "heroId1": first,
+        "heroId2": second,
+        "week": 7,
+        "position": "POSITION_1",
+        "matchCount": 10,
+        "matchWinCount": 7,
+    }
+    row.update(overrides)
+    return row
 
 
 def test_token_absence_has_explicit_fallback(tmp_path) -> None:
@@ -280,3 +304,105 @@ def test_lane_outcome_week_mismatch_degrades_without_scoring(
     provider = StratzProvider(DiskJsonCache(tmp_path), "token", ScriptedTransport([meta, lane]))
     request = StratzEvidenceRequest(patch, Role.POSITION_4, None, (hero,), (), (other_hero,))
     assert provider.get_counter_evidence(request) == ()
+
+
+@pytest.mark.parametrize(
+    ("is_with", "method_name"),
+    [(True, "get_synergy_evidence"), (False, "get_counter_evidence")],
+)
+def test_full_lane_profile_locally_filters_unrelated_rows(
+    tmp_path, patch, hero, other_hero, is_with, method_name
+) -> None:
+    related = (other_hero,)
+    profile = [
+        _lane_row(hero.hero_id, 901),
+        _lane_row(hero.hero_id, 902),
+        _lane_row(hero.hero_id, other_hero.hero_id),
+        _lane_row(hero.hero_id, 903),
+    ]
+    provider = StratzProvider(
+        DiskJsonCache(tmp_path),
+        "token",
+        ScriptedTransport([_stats([_meta_row(hero, Role.POSITION_5)]), _lane(profile)]),
+    )
+    request = StratzEvidenceRequest(
+        patch,
+        Role.POSITION_5,
+        None,
+        (hero,),
+        related if is_with else (),
+        () if is_with else related,
+    )
+    rows = getattr(provider, method_name)(request)
+    assert len(rows) == 1
+    assert rows[0].pair_win_rate == 0.7
+    assert rows[0].effect == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize(
+    ("is_with", "method_name"),
+    [(True, "get_synergy_evidence"), (False, "get_counter_evidence")],
+)
+def test_all_unrelated_lane_profile_rows_are_unavailable(
+    tmp_path, patch, hero, other_hero, is_with, method_name
+) -> None:
+    provider = StratzProvider(
+        DiskJsonCache(tmp_path),
+        "token",
+        ScriptedTransport(
+            [
+                _stats([_meta_row(hero, Role.POSITION_4)]),
+                _lane([_lane_row(hero.hero_id, 901), _lane_row(hero.hero_id, 902)]),
+            ]
+        ),
+    )
+    request = StratzEvidenceRequest(
+        patch,
+        Role.POSITION_4,
+        None,
+        (hero,),
+        (other_hero,) if is_with else (),
+        () if is_with else (other_hero,),
+    )
+    assert getattr(provider, method_name)(request) == ()
+
+
+def test_selected_lane_profile_row_with_invalid_scoring_fields_is_rejected(
+    tmp_path, patch, hero, other_hero
+) -> None:
+    provider = StratzProvider(
+        DiskJsonCache(tmp_path),
+        "token",
+        ScriptedTransport(
+            [
+                _stats([_meta_row(hero, Role.POSITION_4)]),
+                _lane([_lane_row(hero.hero_id, other_hero.hero_id, matchWinCount=11)]),
+            ]
+        ),
+    )
+    request = StratzEvidenceRequest(patch, Role.POSITION_4, None, (hero,), (), (other_hero,))
+    with pytest.raises(ProviderMalformedResponse):
+        provider.get_counter_evidence(request)
+
+
+def test_game_versions_sort_newest_first_and_diagnostic_ignores_response_order(
+    tmp_path, patch
+) -> None:
+    payload = {
+        "data": {
+            "constants": {
+                "gameVersions": [
+                    {"id": 1, "name": "7.39", "asOfDateTime": 100},
+                    {"id": 3, "name": "unknown", "asOfDateTime": None},
+                    {"id": 2, "name": patch.version, "asOfDateTime": 300},
+                ]
+            }
+        }
+    }
+    provider = StratzProvider(DiskJsonCache(tmp_path), "token", FakeTransport(payload))
+    versions = provider.get_game_versions()
+    assert tuple(version.version_id for version in versions) == ("2", "1", "3")
+    assert versions[0].as_of_date_time == 300
+    diagnostic = provider.game_version_diagnostic(patch)
+    assert diagnostic.state is GameVersionFreshness.MATCHED
+    assert diagnostic.latest == versions[0]

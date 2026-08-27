@@ -90,6 +90,7 @@ class UrllibGraphQLTransport:
 class StratzGameVersion:
     version_id: str
     name: str
+    as_of_date_time: int | None = None
 
 
 class GameVersionFreshness(StrEnum):
@@ -297,14 +298,25 @@ class StratzProvider:
         rows = self._nested_list(result.payload, "constants", "gameVersions")
         output = []
         for row in rows:
-            if (
-                not isinstance(row, dict)
-                or not isinstance(row.get("id"), (str, int))
-                or not isinstance(row.get("name"), str)
-            ):
+            if not isinstance(row, dict) or not isinstance(row.get("id"), (str, int)):
                 raise ProviderMalformedResponse("Invalid STRATZ gameVersion row")
-            output.append(StratzGameVersion(str(row["id"]), row["name"]))
-        return tuple(output)
+            if not isinstance(row.get("name"), str):
+                raise ProviderMalformedResponse("Invalid STRATZ gameVersion row")
+            raw_as_of = row.get("asOfDateTime")
+            if raw_as_of is not None and not isinstance(raw_as_of, int):
+                raise ProviderMalformedResponse("Invalid STRATZ gameVersion asOfDateTime")
+            output.append(StratzGameVersion(str(row["id"]), row["name"], raw_as_of))
+        return tuple(
+            sorted(
+                output,
+                key=lambda version: (
+                    version.as_of_date_time is None,
+                    -(version.as_of_date_time or 0),
+                    version.version_id,
+                    version.name,
+                ),
+            )
+        )
 
     def game_version_diagnostic(self, patch: Patch) -> GameVersionDiagnostic:
         versions = self.get_game_versions()
@@ -386,19 +398,22 @@ class StratzProvider:
                 if not isinstance(row, dict):
                     raise ProviderMalformedResponse("STRATZ laneOutcome row must be an object")
                 try:
-                    first, second, week, matches, wins = (
-                        int(row["heroId1"]),
-                        int(row["heroId2"]),
+                    first, second = int(row["heroId1"]), int(row["heroId2"])
+                except (KeyError, TypeError, ValueError) as error:
+                    raise ProviderMalformedResponse("Invalid STRATZ laneOutcome row") from error
+                if first != candidate.hero_id:
+                    raise ProviderMalformedResponse(
+                        "STRATZ laneOutcome row belongs to another hero"
+                    )
+                if second not in wanted:
+                    continue
+                try:
+                    week, matches, wins = (
                         int(row["week"]),
                         int(row["matchCount"]),
                         int(row["matchWinCount"]),
                     )
-                    if (
-                        first != candidate.hero_id
-                        or second not in wanted
-                        or matches < 0
-                        or not 0 <= wins <= matches
-                    ):
+                    if matches < 0 or not 0 <= wins <= matches:
                         raise ValueError
                 except (KeyError, TypeError, ValueError) as error:
                     raise ProviderMalformedResponse("Invalid STRATZ laneOutcome row") from error

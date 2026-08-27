@@ -67,7 +67,7 @@ class DataProvenance:
             raise ValueError("Provenance provider and source scope are required")
         if self.sample_size is not None and self.sample_size < 0:
             raise ValueError("Provenance sample size cannot be negative")
-        if self.data_kind not in {"REAL", "TEST/FIXTURE", "MANUAL"}:
+        if self.data_kind not in {"REAL", "TEST/FIXTURE", "MANUAL", "UNKNOWN / UNAVAILABLE"}:
             raise ValueError("Unknown data kind")
 
 

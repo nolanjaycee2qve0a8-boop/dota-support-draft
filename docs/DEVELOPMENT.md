@@ -10,4 +10,4 @@ $env:DOTA_SUPPORT_ACCOUNT_ID = "<steam32-id>" # optional
 .\.venv\Scripts\python.exe -m dota_support_draft
 ```
 
-The workspace presents legal manual candidates, not recommendations. Personal values are all-time history with unknown role.
+Without verified STRATZ evidence, the workspace presents legal manual candidates rather than experimental scores. Personal values are all-time history with unknown role. Set `STRATZ_API_TOKEN` only in your local environment; it must never be committed. An optional `STRATZ_RANK_BRACKET` is preserved as scope, never inferred.

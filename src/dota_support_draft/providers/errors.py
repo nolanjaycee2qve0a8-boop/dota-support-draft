@@ -32,3 +32,11 @@ class ProviderCapabilityUnavailable(ProviderError):
 
 class PatchResolutionError(ProviderError):
     pass
+
+
+class ProviderAuthenticationRequired(ProviderError):
+    pass
+
+
+class ProviderGraphQLError(ProviderError):
+    pass

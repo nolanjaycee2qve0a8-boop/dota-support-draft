@@ -10,6 +10,8 @@ DOTA-002 adds a read-only OpenDota provider with explicit cache/provenance and u
 
 DOTA-003 adds manual picks/bans and an immediately updating legal candidate list. Candidate ordering may reflect all-time personal familiarity; it is not recommendation scoring.
 
+DOTA-004 adds a position-aware experimental evidence/scoring boundary. STRATZ is optional: with no token or no schema-verified position/patch query, the app explicitly stays in manual legal/familiarity mode and shows no fake recommendation score. See [STRATZ integration](docs/STRATZ_INTEGRATION.md) and [recommendation evidence](docs/RECOMMENDATION_EVIDENCE.md).
+
 ## Run
 
 Install Python 3.11+ dependencies, then run from this directory:
@@ -28,6 +30,14 @@ This does a live request only when you explicitly supply your own account ID; it
 ```powershell
 $env:DOTA_SUPPORT_ACCOUNT_ID = "your-steam32-account-id"
 python -m dota_support_draft.smoke
+```
+
+## Optional STRATZ smoke
+
+The DOTA-004 STRATZ capability is intentionally withheld until its live GraphQL schema is verified. With no token, the only honest smoke result is `NOT RUN / TOKEN NOT CONFIGURED`; do not treat this as a successful provider check.
+
+```powershell
+python -m dota_support_draft.stratz_smoke
 ```
 
 ## Quality gates

@@ -5,7 +5,10 @@ Formal statistics carry `DataProvenance`: provider, retrieval time, source scope
 - `REAL` means externally retrieved data with recorded provenance.
 - `TEST/FIXTURE` is test-only synthetic data and may never be presented as live data.
 - `MANUAL` is explicitly curated input, including capability assessments.
+- `UNKNOWN / UNAVAILABLE` marks an explicitly withheld provider capability; it is not a real statistic.
 
 Provider-specific payloads remain in adapter DTOs. Sample size and provenance support future confidence handling; they must not be silently discarded.
 
 `patch_version = None` explicitly means the evidence is not patch-specific, such as OpenDota all-time player hero totals; it must never be replaced with the current application patch.
+
+DOTA-004 `RoleMetaEvidence`, `CounterEvidence`, and `SynergyEvidence` additionally preserve an explicit intended P4/P5 role and optional rank scope. They may be used only when the provider actually classified/filtered that role and the patch has been cross-provider reconciled.

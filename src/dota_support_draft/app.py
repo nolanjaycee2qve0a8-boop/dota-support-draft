@@ -4,6 +4,7 @@ from dota_support_draft.config import Settings
 from dota_support_draft.draft.bootstrap import DraftBootstrapService
 from dota_support_draft.providers.cache import DiskJsonCache
 from dota_support_draft.providers.opendota import OpenDotaProvider
+from dota_support_draft.providers.stratz import StratzProvider
 from dota_support_draft.ui.bootstrap_controller import ApplicationController
 
 
@@ -14,7 +15,11 @@ def main() -> int:
     settings = Settings.from_environment()
     controller = ApplicationController(
         application,
-        DraftBootstrapService(OpenDotaProvider(DiskJsonCache(settings.cache_directory))),
+        DraftBootstrapService(
+            OpenDotaProvider(DiskJsonCache(settings.cache_directory)),
+            StratzProvider(DiskJsonCache(settings.cache_directory), settings.stratz_api_token),
+            settings.stratz_rank_bracket,
+        ),
         settings.player_account_id,
     )
     application.aboutToQuit.connect(controller.stop)

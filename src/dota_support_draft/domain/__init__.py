@@ -1,3 +1,4 @@
+from .evidence import CounterEvidence, EvidenceSet, RoleMetaEvidence, SynergyEvidence
 from .models import (
     CapabilityScore,
     DataProvenance,
@@ -38,4 +39,8 @@ __all__ = [
     "PlayerProfileState",
     "Role",
     "TeamSide",
+    "CounterEvidence",
+    "EvidenceSet",
+    "RoleMetaEvidence",
+    "SynergyEvidence",
 ]

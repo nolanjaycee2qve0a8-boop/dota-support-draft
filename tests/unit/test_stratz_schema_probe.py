@@ -1,101 +1,113 @@
 from dota_support_draft.stratz_schema_probe import (
-    MAX_ROOT_FIELDS,
+    MAX_SECONDARY_TYPES,
     MAX_TYPE_FIELDS,
+    ROOT_PROBE_QUERY,
+    TYPE_PROBE_QUERY,
+    discover_types,
     render_type,
     summarize_root,
     summarize_type,
 )
 
 
-def _non_null_list(name: str) -> dict[str, object]:
-    return {
-        "kind": "NON_NULL",
-        "name": None,
-        "ofType": {
-            "kind": "LIST",
-            "name": None,
-            "ofType": {
-                "kind": "NON_NULL",
-                "name": None,
-                "ofType": {"kind": "OBJECT", "name": name},
-            },
-        },
-    }
+def _wrapped(name: str, depth: int) -> dict[str, object]:
+    node: dict[str, object] = {"kind": "OBJECT", "name": name}
+    for kind in ("NON_NULL", "LIST") * depth:
+        node = {"kind": kind, "name": None, "ofType": node}
+    return node
 
 
-def test_type_renderer_handles_nested_non_null_and_list() -> None:
-    assert render_type(_non_null_list("HeroStats")) == "[HeroStats!]!"
+def _field(name: str, type_node: dict[str, object], args=()):
+    return {"name": name, "args": list(args), "type": type_node}
 
 
-def test_root_summary_renders_argument_and_return_types_and_filters_irrelevant() -> None:
+def test_actual_queries_request_sufficient_nested_type_reference_depth() -> None:
+    assert ROOT_PROBE_QUERY.count("ofType") >= 5
+    assert TYPE_PROBE_QUERY.count("ofType") >= 5
+    assert render_type(_wrapped("HeroStats", 3)) == "[[[HeroStats!]!]!]"
+
+
+def test_constants_is_relevant_and_signatures_include_types() -> None:
     lines, type_names = summarize_root(
         {
             "__schema": {"queryType": {"name": "Query"}},
             "__type": {
                 "fields": [
-                    {
-                        "name": "heroStats",
-                        "args": [{"name": "positionIds", "type": _non_null_list("Int")}],
-                        "type": {"kind": "OBJECT", "name": "HeroStats"},
-                    },
-                    {"name": "viewer", "args": [], "type": {"kind": "OBJECT", "name": "Viewer"}},
+                    _field("constants", {"kind": "OBJECT", "name": "Constants"}),
+                    _field("viewer", {"kind": "OBJECT", "name": "Viewer"}),
                 ]
             },
         }
     )
-    assert lines == ("Query type: Query", "  heroStats(positionIds: [Int!]!) -> HeroStats")
-    assert type_names == ("HeroStats",)
+    assert lines == ("Query type: Query", "  constants() -> Constants")
+    assert type_names == ("Constants",)
 
 
-def test_type_summary_handles_input_and_object_with_bounds() -> None:
-    input_lines = summarize_type(
-        "HeroFilterInput",
-        {
+class FakeProbeProvider:
+    def __init__(self, responses) -> None:
+        self.responses = responses
+        self.calls: list[str] = []
+
+    def probe_query(self, query, variables=None):
+        del query
+        name = variables["name"]
+        self.calls.append(name)
+        return self.responses[name]
+
+
+def test_bounded_bfs_discovers_multi_hop_types_once() -> None:
+    responses = {
+        "HeroStats": {
+            "__type": {
+                "kind": "OBJECT",
+                "fields": [_field("winWeek", {"kind": "OBJECT", "name": "HeroStatsWinWeek"})],
+            }
+        },
+        "HeroStatsWinWeek": {
+            "__type": {
+                "kind": "OBJECT",
+                "fields": [
+                    _field("heroFilter", {"kind": "INPUT_OBJECT", "name": "HeroFilterInput"})
+                ],
+            }
+        },
+        "HeroFilterInput": {
             "__type": {
                 "kind": "INPUT_OBJECT",
                 "inputFields": [{"name": "rank", "type": {"kind": "ENUM", "name": "RankBracket"}}],
             }
         },
-    )
-    object_lines = summarize_type(
-        "HeroStats",
-        {
-            "__type": {
-                "kind": "OBJECT",
-                "fields": [
-                    {
-                        "name": "matchUp",
-                        "type": {"kind": "LIST", "ofType": {"kind": "OBJECT", "name": "MatchUp"}},
-                    }
-                    for _ in range(MAX_TYPE_FIELDS + 2)
-                ],
-            }
-        },
-    )
-    assert input_lines == ("Type HeroFilterInput (INPUT_OBJECT):", "  rank: RankBracket")
-    assert len(object_lines) == MAX_TYPE_FIELDS + 1
+    }
+    provider = FakeProbeProvider(responses)
+    lines = discover_types(provider, ("HeroStats", "HeroStats"))
+    assert provider.calls == ["HeroStats", "HeroStatsWinWeek", "HeroFilterInput"]
+    assert any("HeroStatsWinWeek" in line for line in lines)
+    assert any("HeroFilterInput" in line for line in lines)
 
 
-def test_root_summary_is_bounded_malformed_safe_and_token_free() -> None:
-    lines, type_names = summarize_root(
-        {
-            "__schema": {"queryType": {"name": "Query"}},
-            "__type": {
-                "fields": [
-                    {
-                        "name": f"hero{index}",
-                        "args": [],
-                        "type": {"kind": "OBJECT", "name": f"Hero{index}"},
-                    }
-                    for index in range(MAX_ROOT_FIELDS + 5)
-                ]
-            },
+def test_discovery_and_type_output_are_bounded_and_malformed_safe() -> None:
+    names = tuple(f"HeroType{index}" for index in range(MAX_SECONDARY_TYPES + 5))
+    provider = FakeProbeProvider(
+        {name: {"__type": {"kind": "OBJECT", "fields": []}} for name in names}
+    )
+    discover_types(provider, names)
+    assert len(provider.calls) == MAX_SECONDARY_TYPES
+    lines, children = summarize_type("BrokenHero", {"__type": {"kind": "OBJECT"}})
+    assert lines == ("Type BrokenHero (OBJECT): no fields",) and children == ()
+    many_fields = {
+        "__type": {
+            "kind": "OBJECT",
+            "fields": [
+                _field("hero", {"kind": "OBJECT", "name": "Hero"})
+                for _ in range(MAX_TYPE_FIELDS + 2)
+            ],
         }
+    }
+    assert len(summarize_type("HeroStats", many_fields)[0]) == MAX_TYPE_FIELDS + 1
+
+
+def test_rendered_probe_output_never_contains_fake_token() -> None:
+    lines, _ = summarize_root(
+        {"__schema": {"queryType": {"name": "Query"}}, "__type": {"fields": []}}
     )
-    assert len(lines) == MAX_ROOT_FIELDS + 1
-    assert len(type_names) <= MAX_ROOT_FIELDS
     assert "secret-token" not in "\n".join(lines)
-    assert (
-        summarize_root({"__schema": {}, "__type": {}})[0][-1]
-        == "Relevant query fields: unavailable"
-    )

@@ -8,4 +8,6 @@ DOTA-004R1 separates immutable P4/P5 evidence bundles, fixes fixed-weight and sa
 
 DOTA-004R1.1 closes immediate role-switch refresh, zero-sample pair, and zero-public-weight edge cases. The schema probe now prints compact bounded root/type signatures but does not enable any live production capability.
 
+DOTA-004R1.2 deepens the introspection type-reference selection and makes bounded type discovery multi-hop. It remains probe-only and does not authorize production query implementation.
+
 Non-goals remain GSI, OCR, overlays, process access, game automation, ML, and calibrated win probabilities.

@@ -188,6 +188,14 @@ class StratzProvider:
             "STRATZ synergy position filter is not yet schema-verified; evidence withheld"
         )
 
+    def probe_query(
+        self, query: str, variables: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        """Run an explicit opt-in diagnostic without caching its raw schema response."""
+        self._require_configuration()
+        raw = self._transport.post(query, variables or {}, self._token, self._timeout)
+        return self._validate_graphql(raw)
+
     @staticmethod
     def normalize_role_meta_rows(
         rows: object,

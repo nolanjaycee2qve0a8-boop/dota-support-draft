@@ -10,6 +10,7 @@ from dota_support_draft.domain import (
     EvidenceSet,
     Hero,
     PersonalHeroStat,
+    Role,
     RoleMetaEvidence,
     SynergyEvidence,
 )
@@ -18,14 +19,16 @@ from dota_support_draft.scoring.engine import ReasonPolarity, RecommendationReas
 
 @dataclass(frozen=True, slots=True)
 class ExperimentalWeights:
+    """Fixed V0 policy: missing evidence stays zero and never inherits weight."""
+
     meta: float = 0.25
     counter: float = 0.30
     synergy: float = 0.25
     familiarity: float = 0.20
 
     def __post_init__(self) -> None:
-        if any(value < 0 for value in self.values()) or sum(self.values()) == 0:
-            raise ValueError("Experimental weights must be non-negative and non-zero")
+        if any(value < 0 for value in self.values()) or abs(sum(self.values()) - 1.0) > 1e-9:
+            raise ValueError("Experimental weights must be non-negative and sum to 1.0")
 
     def values(self) -> tuple[float, float, float, float]:
         return self.meta, self.counter, self.synergy, self.familiarity
@@ -52,7 +55,7 @@ def sample_confidence(matches: int, half_confidence_matches: int = 100) -> float
 
 
 class ExperimentalEvidenceScoringEngine:
-    """Pure local scorer. Missing evidence is neutral via available-weight renormalization."""
+    """Pure local scorer with fixed weights and a public-evidence score gate."""
 
     def __init__(self, weights: ExperimentalWeights | None = None) -> None:
         self.weights = weights or ExperimentalWeights()
@@ -69,64 +72,63 @@ class ExperimentalEvidenceScoringEngine:
         counters = self._counters(draft, candidate, evidence.counters)
         synergies = self._synergies(draft, candidate, evidence.synergies)
         familiarity = self._familiarity(candidate, personal_stats)
-        present = tuple(
-            component for component in (meta, counters, synergies, familiarity) if component
+        public_components = tuple(item for item in (meta, counters, synergies) if item is not None)
+        all_components = (
+            ("meta", meta),
+            ("counter", counters),
+            ("synergy", synergies),
+            ("personal", familiarity),
         )
         missing = tuple(
             name
-            for name, component in (
+            for name, item in (
                 ("current position meta", meta),
                 ("enemy counter", counters),
                 ("ally synergy", synergies),
                 ("personal familiarity", familiarity),
             )
-            if component is None
+            if item is None
         )
-        if not present:
-            return ExperimentalRecommendation(
-                candidate,
-                draft.intended_role.value,
-                None,
-                0.0,
-                (("meta", None), ("counter", None), ("synergy", None), ("personal", None)),
-                (
-                    self._reason(
-                        ReasonPolarity.NEGATIVE,
-                        "unavailable",
-                        0.0,
-                        "No experimental evidence is available.",
-                    ),
-                ),
-                missing,
-            )
-        total_weight = sum(component.weight for component in present)
-        normalized = sum(component.value * component.weight / total_weight for component in present)
-        confidence = sum(
-            component.confidence * component.weight / total_weight for component in present
-        )
-        components = tuple(
-            (name, component.value if component else None)
-            for name, component in (
-                ("meta", meta),
-                ("counter", counters),
-                ("synergy", synergies),
-                ("personal", familiarity),
-            )
-        )
-        reasons = [component.reason for component in present]
+        components = tuple((name, item.value if item else None) for name, item in all_components)
+        reasons = [item.reason for _, item in all_components if item is not None]
         reasons.extend(
             self._reason(
                 ReasonPolarity.NEGATIVE,
                 "unavailable",
                 0.0,
-                f"{name.title()} evidence unavailable; treated neutrally.",
+                f"{name.title()} evidence unavailable; fixed weight contributes neutral zero.",
             )
             for name in missing
+        )
+        if not public_components:
+            if familiarity is not None:
+                reasons.append(
+                    self._reason(
+                        ReasonPolarity.NEGATIVE,
+                        "public_evidence_gate",
+                        0.0,
+                        "Personal familiarity alone cannot enable an experimental recommendation.",
+                    )
+                )
+            return ExperimentalRecommendation(
+                candidate,
+                draft.intended_role.value,
+                None,
+                0.0,
+                components,
+                tuple(reasons),
+                missing,
+            )
+        weighted_effect = sum(item.value * item.weight for _, item in all_components if item)
+        public_weight = self.weights.meta + self.weights.counter + self.weights.synergy
+        confidence = (
+            sum(item.confidence * item.coverage * item.weight for item in public_components)
+            / public_weight
         )
         return ExperimentalRecommendation(
             candidate,
             draft.intended_role.value,
-            round(max(0.0, min(100.0, 50.0 + normalized * 100.0)), 1),
+            round(max(0.0, min(100.0, 50.0 + weighted_effect * 100.0)), 1),
             round(confidence, 3),
             components,
             tuple(reasons),
@@ -156,6 +158,7 @@ class ExperimentalEvidenceScoringEngine:
     class _Component:
         value: float
         confidence: float
+        coverage: float
         weight: float
         reason: RecommendationReason
 
@@ -168,24 +171,27 @@ class ExperimentalEvidenceScoringEngine:
     def _meta(
         self, draft: DraftState, candidate: Hero, rows: tuple[RoleMetaEvidence, ...]
     ) -> _Component | None:
-        matching = tuple(
-            item
-            for item in rows
-            if item.hero == candidate
-            and item.role == draft.intended_role
-            and item.patch == draft.patch
+        item = next(
+            (
+                row
+                for row in rows
+                if row.hero == candidate
+                and row.role == draft.intended_role
+                and row.patch == draft.patch
+            ),
+            None,
         )
-        if not matching:
+        if item is None:
             return None
-        item = matching[0]
-        value = (item.win_rate - 0.5) * sample_confidence(item.matches)
-        polarity = ReasonPolarity.POSITIVE if value >= 0 else ReasonPolarity.NEGATIVE
+        confidence = sample_confidence(item.matches)
+        value = (item.win_rate - 0.5) * confidence
         return self._Component(
             value,
-            sample_confidence(item.matches),
+            confidence,
+            1.0,
             self.weights.meta,
             self._reason(
-                polarity,
+                ReasonPolarity.POSITIVE if value >= 0 else ReasonPolarity.NEGATIVE,
                 "meta",
                 value,
                 (
@@ -198,66 +204,78 @@ class ExperimentalEvidenceScoringEngine:
     def _counters(
         self, draft: DraftState, candidate: Hero, rows: tuple[CounterEvidence, ...]
     ) -> _Component | None:
-        enemy_heroes = {pick.hero for pick in draft.enemy_picks}
-        matching = tuple(
-            item
-            for item in rows
-            if item.candidate == candidate
-            and item.enemy in enemy_heroes
-            and item.role == draft.intended_role
-            and item.patch == draft.patch
-        )
-        if not matching:
-            return None
-        confidence_total = sum(sample_confidence(item.matches) for item in matching)
-        value = (
-            sum(item.advantage * sample_confidence(item.matches) for item in matching)
-            / confidence_total
-        )
-        confidence = confidence_total / len(matching)
-        polarity = ReasonPolarity.POSITIVE if value >= 0 else ReasonPolarity.NEGATIVE
-        return self._Component(
-            value,
-            confidence,
+        return self._pair_component(
+            candidate,
+            draft.intended_role,
+            draft.patch,
+            tuple(pick.hero for pick in draft.enemy_picks),
+            rows,
             self.weights.counter,
-            self._reason(
-                polarity,
-                "counter",
-                value,
-                f"Counter evidence covers {len(matching)} known enemy hero(es).",
-            ),
+            "counter",
+            "enemy",
         )
 
     def _synergies(
         self, draft: DraftState, candidate: Hero, rows: tuple[SynergyEvidence, ...]
     ) -> _Component | None:
-        allied_heroes = {pick.hero for pick in draft.allied_picks}
-        matching = tuple(
-            item
-            for item in rows
-            if item.candidate == candidate
-            and item.ally in allied_heroes
-            and item.role == draft.intended_role
-            and item.patch == draft.patch
+        return self._pair_component(
+            candidate,
+            draft.intended_role,
+            draft.patch,
+            tuple(pick.hero for pick in draft.allied_picks),
+            rows,
+            self.weights.synergy,
+            "synergy",
+            "ally",
         )
-        if not matching:
+
+    def _pair_component(
+        self,
+        candidate: Hero,
+        role: Role,
+        patch: object,
+        related_heroes: tuple[Hero, ...],
+        rows: tuple[CounterEvidence, ...] | tuple[SynergyEvidence, ...],
+        weight: float,
+        category: str,
+        related_label: str,
+    ) -> _Component | None:
+        relevant = tuple(
+            row
+            for row in rows
+            if row.candidate == candidate
+            and row.role == role
+            and row.patch == patch
+            and row.effect is not None
+            and (row.enemy if isinstance(row, CounterEvidence) else row.ally) in related_heroes
+        )
+        if not relevant:
             return None
-        confidence_total = sum(sample_confidence(item.matches) for item in matching)
-        value = (
-            sum(item.advantage * sample_confidence(item.matches) for item in matching)
+        confidences = tuple(sample_confidence(row.matches) for row in relevant)
+        confidence_total = sum(confidences)
+        raw_effect = (
+            sum(
+                (row.effect or 0.0) * confidence
+                for row, confidence in zip(relevant, confidences, strict=True)
+            )
             / confidence_total
         )
-        confidence = confidence_total / len(matching)
-        polarity = ReasonPolarity.POSITIVE if value >= 0 else ReasonPolarity.NEGATIVE
+        confidence = confidence_total / len(relevant)
+        value = raw_effect * confidence
+        coverage = len(relevant) / len(related_heroes) if related_heroes else 0.0
         return self._Component(
             value,
             confidence,
-            self.weights.synergy,
+            coverage,
+            weight,
             self._reason(
-                polarity,
-                "synergy",
+                ReasonPolarity.POSITIVE if value >= 0 else ReasonPolarity.NEGATIVE,
+                category,
                 value,
-                f"Synergy evidence covers {len(matching)} allied hero(es).",
+                (
+                    f"{category.title()} evidence: {len(relevant)} / "
+                    f"{len(related_heroes)} {related_label} heroes covered."
+                ),
             ),
         )
 
@@ -272,6 +290,7 @@ class ExperimentalEvidenceScoringEngine:
         return self._Component(
             value,
             confidence,
+            1.0,
             self.weights.familiarity,
             self._reason(
                 ReasonPolarity.POSITIVE if value >= 0 else ReasonPolarity.NEGATIVE,

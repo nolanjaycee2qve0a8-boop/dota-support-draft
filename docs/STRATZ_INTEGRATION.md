@@ -14,3 +14,7 @@ The DTO normalizer records the currently documented `heroId`, `matchCount`, and 
 `StratzProvider.resolve_patch` requires exactly one STRATZ game-version name equal to the OpenDota `Patch.version`; IDs are never assumed equal. Future schema verification may enable a bounded role-meta batch plus bounded pair operations. It must document operation name, variables, returned fields, rate limit, and position/patch semantics before removing these gates.
 
 Cache keys are SHA-256 hashes of the operation label and canonical variables only. The authorization token is neither a key component nor written to disk. TTLs are centralized: identity 6h; meta/pair evidence 3h. Expired data is not silently returned as fresh.
+
+## Schema probe
+
+Run `python -m dota_support_draft.stratz_schema_probe` only after configuring `STRATZ_API_TOKEN` in the interactive environment. It sends a minimal GraphQL introspection query for the Query type, uses the normal transport/error mapping, prints only relevant field names and argument names, and neither prints the token nor persists/dumps the schema response. A missing token prints `NOT RUN / TOKEN NOT CONFIGURED`. Its output must be reviewed before adding any production role/meta/pair query.

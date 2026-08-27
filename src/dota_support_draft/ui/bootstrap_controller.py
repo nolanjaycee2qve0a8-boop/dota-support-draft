@@ -69,8 +69,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
                 bootstrap.personal_stats,
                 player=bootstrap.player,
                 personal_error=bootstrap.personal_error,
-                evidence=bootstrap.evidence,
-                recommendation_error=bootstrap.recommendation_error,
+                evidence_by_role=bootstrap.evidence_by_role,
             ),
         )
         self.replacement.show()

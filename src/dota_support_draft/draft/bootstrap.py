@@ -10,6 +10,8 @@ from dota_support_draft.domain import (
     PlayerProfile,
     PlayerProfileState,
     Role,
+    RoleEvidenceBundle,
+    RoleEvidenceBundles,
 )
 from dota_support_draft.providers.base import DotaDataProvider
 from dota_support_draft.providers.errors import ProviderError
@@ -23,8 +25,9 @@ class DraftBootstrapData:
     player: PlayerProfileState | None = None
     personal_stats: tuple[PersonalHeroStat, ...] = ()
     personal_error: str | None = None
-    evidence: EvidenceSet = EvidenceSet()
-    recommendation_error: str | None = None
+    evidence_by_role: RoleEvidenceBundles = RoleEvidenceBundles(
+        RoleEvidenceBundle(Role.POSITION_4), RoleEvidenceBundle(Role.POSITION_5)
+    )
 
 
 class DraftBootstrapService:
@@ -54,21 +57,29 @@ class DraftBootstrapService:
                     personal_stats = self.provider.get_player_hero_stats(profile)
                 except ProviderError as error:
                     personal_error = str(error)
-        evidence, recommendation_error = self._load_recommendation_evidence(patch, heroes)
+        evidence_by_role = self._load_recommendation_evidence(patch, heroes)
         return DraftBootstrapData(
-            patch, heroes, player, personal_stats, personal_error, evidence, recommendation_error
+            patch, heroes, player, personal_stats, personal_error, evidence_by_role
         )
 
     def _load_recommendation_evidence(
         self, patch: Patch, heroes: tuple[Hero, ...]
-    ) -> tuple[EvidenceSet, str | None]:
-        if self.stratz_provider is None:
-            return EvidenceSet(), "Recommendation evidence unavailable: STRATZ not configured"
-        request = StratzEvidenceRequest(
-            patch, Role.POSITION_4, self.stratz_rank_bracket, heroes, (), ()
+    ) -> RoleEvidenceBundles:
+        return RoleEvidenceBundles(
+            self._load_role_evidence(Role.POSITION_4, patch, heroes),
+            self._load_role_evidence(Role.POSITION_5, patch, heroes),
         )
+
+    def _load_role_evidence(
+        self, role: Role, patch: Patch, heroes: tuple[Hero, ...]
+    ) -> RoleEvidenceBundle:
+        if self.stratz_provider is None:
+            return RoleEvidenceBundle(
+                role, error="Recommendation evidence unavailable: STRATZ not configured"
+            )
+        request = StratzEvidenceRequest(patch, role, self.stratz_rank_bracket, heroes, (), ())
         try:
             role_meta = self.stratz_provider.get_role_meta(request)
         except ProviderError as error:
-            return EvidenceSet(), f"Recommendation evidence unavailable: {error}"
-        return EvidenceSet(role_meta=role_meta), None
+            return RoleEvidenceBundle(role, error=f"Recommendation evidence unavailable: {error}")
+        return RoleEvidenceBundle(role, EvidenceSet(role_meta=role_meta))

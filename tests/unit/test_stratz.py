@@ -50,6 +50,14 @@ def test_cache_key_never_contains_token(tmp_path) -> None:
     assert "secret-token" not in provider.cache_identity("meta", {"role": "POSITION_5"})
 
 
+def test_cache_identity_is_deterministic_and_scoped_by_role_and_patch(tmp_path) -> None:
+    provider = StratzProvider(DiskJsonCache(tmp_path), "token")
+    p4 = provider.cache_identity("meta", {"role": "POSITION_4", "patch": "7.40"})
+    assert p4 == provider.cache_identity("meta", {"patch": "7.40", "role": "POSITION_4"})
+    assert p4 != provider.cache_identity("meta", {"role": "POSITION_5", "patch": "7.40"})
+    assert p4 != provider.cache_identity("meta", {"role": "POSITION_4", "patch": "7.41"})
+
+
 def test_graphql_errors_and_malformed_schema_are_not_zero_data() -> None:
     with pytest.raises(ProviderGraphQLError):
         StratzProvider._validate_graphql({"errors": [{"message": "bad"}]})

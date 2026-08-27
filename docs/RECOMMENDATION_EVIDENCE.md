@@ -6,14 +6,16 @@ DOTA-004 introduces a provider-neutral evidence model: `RoleMetaEvidence`, `Coun
 
 Sample confidence is `n / (n + 100)`. It is 0.5 at 100 matches and approaches, but never reaches, 1. This deliberately gives a three-match result much less authority than a large sample.
 
-The V0 experimental weights are centralized in `ExperimentalWeights`: meta 25%, counter 30%, synergy 25%, familiarity 20%. A component value is a sample-confidence-adjusted win-rate advantage over 50%; counter and synergy aggregate the weighted mean across all known enemies/allies. One extreme pair cannot replace the aggregate.
+The V0 experimental weights are centralized and must sum to 1.0: meta 25%, counter 30%, synergy 25%, familiarity 20%. Every public component is magnitude-shrunk by confidence. Meta is `(win_rate - 0.5) × confidence`. For pairs, the raw aggregate is the confidence-weighted mean of **verified provider effects**, then the aggregate is multiplied by its mean confidence. One extreme pair cannot replace the aggregate.
 
-Available components are renormalized to their available weights. Missing evidence is neutral, never strongly negative, and adds an explicit unavailable reason. The rendered **Experimental Score** is `clamp(0, 100, 50 + weighted_advantage * 100)`. It is an internal ordering score, not a win probability or calibrated forecast.
+Missing components retain their configured weight and contribute neutral zero; weights are never redistributed. The rendered **Experimental Score** is `clamp(0, 100, 50 + Σ(fixed_weight × adjusted_effect) × 100)`. It is an internal ordering score, not a win probability or calibrated forecast. A candidate receives that score only if it has at least one applicable public P4/P5 component; familiarity alone cannot unlock recommendation mode.
 
-Personal OpenDota history remains all-time and role unknown. It contributes only cautious familiarity: a 25-match confidence curve, a small experience term, and a heavily reduced win-rate term. It is never called P4/P5 performance or current-patch performance.
+Personal OpenDota history remains all-time and role unknown. It contributes only cautious familiarity: a 25-match confidence curve, a small experience term, and a heavily reduced win-rate term. It is never called P4/P5 performance or current-patch performance. Overall evidence confidence is the fixed-public-weight average of each public component's reliability × coverage, so meta-only evidence reports lower coverage than complete meta/counter/synergy evidence.
+
+`CounterEvidence` and `SynergyEvidence` keep `pair_win_rate` separate from `effect`. A raw pair win rate is not promoted to an advantage by subtracting 50%; only a provider-supplied or defensibly baseline-adjusted `effect` is scoreable. Fixtures may provide explicit `TEST/FIXTURE` effects.
 
 ## Degradation and request budget
 
 No STRATZ token, transport error, schema error, or unresolved patch makes manual drafting fail. The UI remains in legal/familiarity candidate mode and shows an explicit unavailable message with no synthetic experimental scores. Existing startup work stays on the R5 background worker; normal table refreshes run only pure local scoring.
 
-The present verified capability gate issues **zero** STRATZ requests per candidate/draft update. When a schema-verified operation is enabled, it must be a bounded batch/preload rather than candidate × ally/enemy calls; the provider transport/cache boundary and `EvidenceSet` exist to enforce that design.
+`RoleEvidenceBundles` holds distinct immutable P4 and P5 evidence/error states. Switching roles only selects the local bundle; it performs no provider/network call and never reuses P4 data as P5 data. The present verified capability gate issues **zero** STRATZ requests per candidate/draft update. When a schema-verified operation is enabled, it must be a bounded batch/preload rather than candidate × ally/enemy calls.

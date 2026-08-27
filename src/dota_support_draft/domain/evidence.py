@@ -39,16 +39,18 @@ class CounterEvidence:
     role: Role
     patch: Patch
     matches: int
-    candidate_win_rate: float
     provenance: DataProvenance
+    pair_win_rate: float | None = None
+    effect: float | None = None
     rank_bracket: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_matches(self.matches, self.candidate_win_rate)
-
-    @property
-    def advantage(self) -> float:
-        return self.candidate_win_rate - 0.5
+        if self.matches < 0:
+            raise ValueError("Evidence requires non-negative matches")
+        if self.pair_win_rate is not None and not 0 <= self.pair_win_rate <= 1:
+            raise ValueError("Pair win rate must be from 0 through 1")
+        if self.effect is not None and not -1 <= self.effect <= 1:
+            raise ValueError("Verified effect must be between -1 and 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,16 +60,18 @@ class SynergyEvidence:
     role: Role
     patch: Patch
     matches: int
-    candidate_win_rate: float
     provenance: DataProvenance
+    pair_win_rate: float | None = None
+    effect: float | None = None
     rank_bracket: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_matches(self.matches, self.candidate_win_rate)
-
-    @property
-    def advantage(self) -> float:
-        return self.candidate_win_rate - 0.5
+        if self.matches < 0:
+            raise ValueError("Evidence requires non-negative matches")
+        if self.pair_win_rate is not None and not 0 <= self.pair_win_rate <= 1:
+            raise ValueError("Pair win rate must be from 0 through 1")
+        if self.effect is not None and not -1 <= self.effect <= 1:
+            raise ValueError("Verified effect must be between -1 and 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,3 +81,43 @@ class EvidenceSet:
     role_meta: tuple[RoleMetaEvidence, ...] = ()
     counters: tuple[CounterEvidence, ...] = ()
     synergies: tuple[SynergyEvidence, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RoleEvidenceBundle:
+    """Evidence/error state for exactly one intended support position."""
+
+    role: Role
+    evidence: EvidenceSet = EvidenceSet()
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        roles = (
+            *(item.role for item in self.evidence.role_meta),
+            *(item.role for item in self.evidence.counters),
+            *(item.role for item in self.evidence.synergies),
+        )
+        if any(item is not self.role for item in roles):
+            raise ValueError("Role evidence bundle cannot contain another position")
+
+
+@dataclass(frozen=True, slots=True)
+class RoleEvidenceBundles:
+    position_4: RoleEvidenceBundle
+    position_5: RoleEvidenceBundle
+
+    def __post_init__(self) -> None:
+        if (
+            self.position_4.role is not Role.POSITION_4
+            or self.position_5.role is not Role.POSITION_5
+        ):
+            raise ValueError(
+                "Role evidence bundles require separate Position 4 and Position 5 entries"
+            )
+
+    def for_role(self, role: Role) -> RoleEvidenceBundle:
+        if role is Role.POSITION_4:
+            return self.position_4
+        if role is Role.POSITION_5:
+            return self.position_5
+        raise ValueError("Only Position 4 and Position 5 have evidence bundles")

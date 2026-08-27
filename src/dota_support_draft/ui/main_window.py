@@ -1,7 +1,14 @@
 from collections.abc import Callable
 from typing import Any
 
-from dota_support_draft.domain import EvidenceSet, Hero, PersonalHeroStat, Role
+from dota_support_draft.domain import (
+    EvidenceSet,
+    Hero,
+    PersonalHeroStat,
+    Role,
+    RoleEvidenceBundle,
+    RoleEvidenceBundles,
+)
 from dota_support_draft.draft import (
     CandidateRow,
     ManualDraftSession,
@@ -19,8 +26,7 @@ def create_main_window(
     initial_status: str = "Loading data...",
     player: object | None = None,
     personal_error: str | None = None,
-    evidence: EvidenceSet | None = None,
-    recommendation_error: str | None = None,
+    evidence_by_role: RoleEvidenceBundles | None = None,
 ) -> object:
     """Thin UI binding; session owns all draft invariants and candidate eligibility."""
     from PySide6.QtCore import Qt
@@ -39,7 +45,10 @@ def create_main_window(
         QWidget,
     )
 
-    evidence = evidence or EvidenceSet()
+    evidence_by_role = evidence_by_role or RoleEvidenceBundles(
+        RoleEvidenceBundle(Role.POSITION_4, EvidenceSet(), "Recommendation evidence unavailable"),
+        RoleEvidenceBundle(Role.POSITION_5, EvidenceSet(), "Recommendation evidence unavailable"),
+    )
     window = QMainWindow()
     window.setWindowTitle("Dota Support Draft Assistant")
     contents = QWidget()
@@ -54,10 +63,7 @@ def create_main_window(
     layout.addWidget(status)
     if warning:
         layout.addWidget(QLabel(f"Personal data unavailable: {warning}"))
-    evidence_label = QLabel(
-        recommendation_error
-        or "Experimental recommendation — internal ranking score, not a win-probability estimate."
-    )
+    evidence_label = QLabel()
     layout.addWidget(evidence_label)
     role_row = QHBoxLayout()
     four = QRadioButton("Position 4")
@@ -126,10 +132,16 @@ def create_main_window(
                 item = QListWidgetItem(hero.localized_name or hero.canonical_name)
                 item.setData(Qt.UserRole, hero.hero_id)
                 bans.addItem(item)
-            recommendations = (
-                scorer.rank(session.to_draft_state(), session.candidates, evidence, personal_stats)
-                if recommendation_error is None
-                else ()
+            bundle = evidence_by_role.for_role(session.role)
+            evidence_label.setText(
+                bundle.error
+                or (
+                    "Experimental recommendation — internal ranking score, "
+                    "not a win-probability estimate."
+                )
+            )
+            recommendations = scorer.rank(
+                session.to_draft_state(), session.candidates, bundle.evidence, personal_stats
             )
             rows = filter_candidates(
                 build_candidate_rows(session.candidates, personal_stats, recommendations),

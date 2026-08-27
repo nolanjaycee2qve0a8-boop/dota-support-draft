@@ -74,11 +74,27 @@ def test_counter_and_synergy_are_sample_weighted(hero, other_hero, patch) -> Non
     evidence = EvidenceSet(
         counters=(
             CounterEvidence(
-                hero, other_hero, Role.POSITION_5, patch, 1000, 0.60, _provenance(patch)
+                hero,
+                other_hero,
+                Role.POSITION_5,
+                patch,
+                1000,
+                _provenance(patch),
+                pair_win_rate=0.60,
+                effect=0.1,
             ),
         ),
         synergies=(
-            SynergyEvidence(hero, ally, Role.POSITION_5, patch, 1000, 0.55, _provenance(patch)),
+            SynergyEvidence(
+                hero,
+                ally,
+                Role.POSITION_5,
+                patch,
+                1000,
+                _provenance(patch),
+                pair_win_rate=0.55,
+                effect=0.05,
+            ),
         ),
     )
     result = ExperimentalEvidenceScoringEngine().score(
@@ -86,8 +102,8 @@ def test_counter_and_synergy_are_sample_weighted(hero, other_hero, patch) -> Non
     )
     components = dict(result.components)
     assert result.experimental_score is not None
-    assert components["counter"] == pytest.approx(0.1)
-    assert components["synergy"] == pytest.approx(0.05)
+    assert components["counter"] == pytest.approx(0.1 * sample_confidence(1000))
+    assert components["synergy"] == pytest.approx(0.05 * sample_confidence(1000))
 
 
 def test_personal_familiarity_is_all_time_role_unknown(hero, other_hero, patch) -> None:
@@ -95,7 +111,7 @@ def test_personal_familiarity_is_all_time_role_unknown(hero, other_hero, patch) 
     result = ExperimentalEvidenceScoringEngine().score(
         _draft(hero, other_hero, patch), hero, EvidenceSet(), (personal,)
     )
-    assert result.experimental_score is not None
+    assert result.experimental_score is None
     assert "role-unknown" in result.reasons[0].explanation
 
 
@@ -110,7 +126,7 @@ def test_missing_components_are_neutral_and_disclosed(hero, other_hero, patch) -
     )
     assert result.experimental_score is not None
     assert "enemy counter" in result.missing_evidence
-    assert any("treated neutrally" in reason.explanation for reason in result.reasons)
+    assert any("neutral zero" in reason.explanation for reason in result.reasons)
 
 
 def test_ranking_is_deterministic_with_hero_id_tiebreak(hero, other_hero, patch) -> None:

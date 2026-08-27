@@ -1,4 +1,11 @@
-from .evidence import CounterEvidence, EvidenceSet, RoleMetaEvidence, SynergyEvidence
+from .evidence import (
+    CounterEvidence,
+    EvidenceSet,
+    RoleEvidenceBundle,
+    RoleEvidenceBundles,
+    RoleMetaEvidence,
+    SynergyEvidence,
+)
 from .models import (
     CapabilityScore,
     DataProvenance,
@@ -42,5 +49,7 @@ __all__ = [
     "CounterEvidence",
     "EvidenceSet",
     "RoleMetaEvidence",
+    "RoleEvidenceBundle",
+    "RoleEvidenceBundles",
     "SynergyEvidence",
 ]

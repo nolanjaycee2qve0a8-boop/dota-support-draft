@@ -62,6 +62,9 @@ def build_candidate_rows(
             (
                 "Experimental recommendation"
                 if recommendation_by_id.get(hero.hero_id)
+                and recommendation_by_id[hero.hero_id].experimental_score is not None
+                else "Familiarity only — public recommendation evidence unavailable"
+                if recommendation_by_id.get(hero.hero_id)
                 else "Eligible — scoring not enabled"
             ),
             recommendation_by_id[hero.hero_id].experimental_score

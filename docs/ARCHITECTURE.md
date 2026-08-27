@@ -15,3 +15,9 @@ Manual Input ────┘
 ```
 
 All collection methods share the same `DraftState` boundary. Nothing in scoring depends on whether a pick came from GSI, vision, or manual correction.
+
+```text
+Manual UI ───────┐
+GSI (future) ────┼─> DraftState ─> Candidate Presenter / Recommendation Engine ─> Desktop UI
+Vision (future) ─┘
+```

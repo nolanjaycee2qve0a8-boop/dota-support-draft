@@ -1,15 +1,22 @@
 import sys
 
-from dota_support_draft.ui import create_main_window
+from dota_support_draft.config import Settings
+from dota_support_draft.draft.bootstrap import DraftBootstrapService
+from dota_support_draft.providers.cache import DiskJsonCache
+from dota_support_draft.providers.opendota import OpenDotaProvider
+from dota_support_draft.ui.bootstrap_controller import ApplicationController
 
 
 def main() -> int:
-    try:
-        from PySide6.QtWidgets import QApplication
-    except ImportError as error:
-        message = "PySide6 is required for the desktop shell. Install project dependencies first."
-        raise RuntimeError(message) from error
+    from PySide6.QtWidgets import QApplication
+
     application = QApplication(sys.argv)
-    window = create_main_window()
-    window.show()  # type: ignore[attr-defined]
+    settings = Settings.from_environment()
+    controller = ApplicationController(
+        application,
+        DraftBootstrapService(OpenDotaProvider(DiskJsonCache(settings.cache_directory))),
+        settings.player_account_id,
+    )
+    application.aboutToQuit.connect(controller.stop)
+    controller.start()
     return int(application.exec())

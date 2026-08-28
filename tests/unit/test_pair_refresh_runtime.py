@@ -129,6 +129,33 @@ def test_stop_during_active_pair_refresh_has_bounded_wait() -> None:
     _wait(app, lambda: controller.active_thread is None)
 
 
+def test_shutdown_drops_active_result_pending_and_later_schedule() -> None:
+    app = QApplication.instance() or QApplication([])
+    service, applied, completed = SlowPairService(0.18), [], []
+    first, pending, later = _input(1), _input(2), _input(3)
+    current = [first.context]
+    controller = PairEvidenceRefreshController(
+        service,
+        lambda: current[0],
+        applied.append,
+        lambda state, message: None,
+        debounce_ms=0,
+    )
+    controller.schedule(first)
+    _wait(app, lambda: service.generations == [1])
+    current[0] = pending.context
+    controller.schedule(pending)
+    app.processEvents()
+    assert controller.begin_shutdown(lambda: completed.append(QThread.currentThread()))
+    controller.begin_shutdown(lambda: completed.append("replacement"))
+    controller.schedule(later)
+    _wait(app, lambda: controller.active_thread is None and len(completed) == 1)
+    assert service.generations == [1]
+    assert applied == []
+    assert completed == [app.thread()]
+    assert controller.findChildren(QThread) == []
+
+
 def test_repeated_refreshes_retire_threads_without_accumulating_children() -> None:
     app = QApplication.instance() or QApplication([])
     service = SlowPairService(0.02)

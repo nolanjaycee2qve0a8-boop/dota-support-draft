@@ -184,7 +184,7 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
     def begin_shutdown(self, on_complete: Callable[[], None] | None = None) -> bool:
         """Reject future work without blocking GUI; return whether a worker must retire first."""
         if self._shutting_down:
-            if on_complete is not None:
+            if on_complete is not None and self._shutdown_complete is None:
                 self._shutdown_complete = on_complete
             return self._active is not None
         self._shutting_down = True

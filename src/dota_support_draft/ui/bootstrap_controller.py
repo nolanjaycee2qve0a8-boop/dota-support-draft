@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
 from dota_support_draft.draft.bootstrap import DraftBootstrapData, DraftBootstrapService
+from dota_support_draft.draft.pair_evidence import DraftPairEvidenceService
 from dota_support_draft.draft.session import ManualDraftSession
 from dota_support_draft.ui.main_window import create_main_window
 
@@ -39,7 +40,11 @@ class BootstrapWorker(QObject):  # type: ignore[misc]  # PySide6 QObject stub is
 
 class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject stub is incomplete.
     def __init__(
-        self, application: QApplication, service: DraftBootstrapService, account_id: str | None
+        self,
+        application: QApplication,
+        service: DraftBootstrapService,
+        account_id: str | None,
+        pair_service: DraftPairEvidenceService | None = None,
     ) -> None:
         super().__init__(application)
         self.loading: MainWindowProtocol = cast(MainWindowProtocol, create_main_window())
@@ -47,6 +52,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
         self.callback_thread: QThread | None = None
         self.thread = QThread(self)
         self.worker = BootstrapWorker(service, account_id)
+        self.pair_service = pair_service
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.ready.connect(self.on_ready, Qt.ConnectionType.QueuedConnection)
@@ -73,6 +79,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
                 stratz_freshness_warning=(
                     bootstrap.stratz_freshness.message if bootstrap.stratz_freshness else None
                 ),
+                pair_service=self.pair_service,
             ),
         )
         self.replacement.show()
@@ -89,6 +96,10 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
         self.loading.close()
 
     def stop(self) -> None:
+        if self.replacement is not None:
+            controller = getattr(self.replacement, "pair_refresh_controller", None)
+            if controller is not None:
+                controller.stop()
         if self.thread.isRunning():
             self.thread.quit()
             self.thread.wait(1500)

@@ -12,6 +12,8 @@ DOTA-003 adds manual picks/bans and an immediately updating legal candidate list
 
 DOTA-004 adds a position-aware experimental evidence/scoring boundary. STRATZ is optional: current-week P4/P5 meta is loaded only with a token, remains explicitly non-patch-isolated, and failures preserve manual drafting. Draft-dependent pair refresh remains DOTA-005 work. See [STRATZ integration](docs/STRATZ_INTEGRATION.md) and [recommendation evidence](docs/RECOMMENDATION_EVIDENCE.md).
 
+DOTA-005 adds event-driven, debounced background pair enrichment for a bounded top-8 preliminary shortlist. Draft edits remain immediately local; stale pair work is ignored and Meta/Familiarity stays available while pair data loads or fails.
+
 ## Run
 
 Install Python 3.11+ dependencies, then run from this directory:

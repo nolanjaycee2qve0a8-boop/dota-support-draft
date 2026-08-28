@@ -13,3 +13,5 @@ $env:DOTA_SUPPORT_ACCOUNT_ID = "<steam32-id>" # optional
 Without verified STRATZ evidence, the workspace presents legal manual candidates rather than experimental scores. Personal values are all-time history with unknown role. Set `STRATZ_API_TOKEN` only in your local environment; it must never be committed. An optional `STRATZ_RANK_BRACKET` is preserved as scope, never inferred.
 
 `STRATZ_RANK_BRACKET` accepts basic STRATZ values or fine values that map explicitly to their basic bucket. For an interactive live-only check, set the token locally and run `./.venv/Scripts/python.exe -m dota_support_draft.stratz_smoke`; never add the token or response payload to the repository.
+
+For desktop validation, launch the app with a local STRATZ token, rapidly add/remove allies or enemies, and verify that the interface remains responsive while pair status progresses through updating/ready/partial/error. Shutdown is cooperative: pending/debounced work is cancelled, while an already-running synchronous HTTP call can finish before its worker thread exits.

@@ -12,6 +12,8 @@ The manual UI refreshes immediately after a checked P4/P5 radio change, selectin
 
 DOTA-004R2's live branch is `STRATZ current-week role-meta batch → immutable P4/P5 bundles → local scoring`. Bootstrap makes at most two role-meta requests plus a freshness diagnostic. `laneOutcome` is provider capability only: aliases batch at most eight candidate profiles, cache independently of selected draft picks, and is not fetched from UI mutations. DOTA-005 owns asynchronous draft-dependent pair refresh orchestration.
 
+DOTA-005 implements that boundary as `DraftMainWindow → PairEvidenceRefreshController → QTimer (250 ms) → dedicated QThread worker → DraftPairEvidenceService → STRATZ → queued GUI result`. The controller permits one active worker and one replaceable newest pending snapshot. Results must match both generation and semantic draft context before the GUI atomically replaces its context-keyed Counter/Synergy overlay.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

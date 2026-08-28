@@ -27,3 +27,9 @@ R1.1 also excludes verified-effect pair rows with zero matches from aggregation,
 Evidence now has an explicit statistical scope: `CURRENT_WEEK`, `GAME_VERSION`, or `TEST_FIXTURE`. `CURRENT_WEEK` carries an opaque STRATZ week ID and no patch version. It can score only for its requested P4/P5 role; it is not rejected merely because OpenDota's current patch is newer than the STRATZ game-version catalog. Game-version evidence still requires an exact version match.
 
 For `laneOutcome`, `isWith:true` becomes synergy and `isWith:false` becomes counter evidence. Its scored effect is the current-week, role/rank-compatible candidate conditional match win rate (`matchWinCount / matchCount`) minus that candidate's same-week role-meta win rate. Different weeks, absent baselines, rank incompatibility, and zero samples are unavailable rather than fabricated effects.
+
+## Event-driven pair enrichment
+
+Only the deterministic `pair-enhanced shortlist` (at most eight legal candidates) receives draft-dependent Counter/Synergy enrichment. It is selected from base role Meta plus personal familiarity using the public-evidence gate, never from prior pair values. All legal candidates remain visible; non-shortlisted candidates score with Meta/Personal and neutral missing pair weights.
+
+Pair work is debounced for 250 ms and latest-state-wins. An in-flight urllib call may finish naturally, but its result is discarded unless its generation and role/allies/enemies/shortlist/rank context exactly match. Partial capability failure retains the successful polarity; complete pair failure falls back to current-week Meta and personal evidence.

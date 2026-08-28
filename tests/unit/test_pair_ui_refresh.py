@@ -1,7 +1,7 @@
 import time
 from datetime import UTC, date, datetime
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThread, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
@@ -40,6 +40,18 @@ class SlowPairService(CountingPairService):
     def refresh(self, input_data):
         self.calls += 1
         time.sleep(0.15)
+        return PairEvidenceResult(input_data.generation, input_data.context)
+
+
+class RecordingSlowPairService(CountingPairService):
+    def __init__(self, delay: float = 0.15) -> None:
+        super().__init__()
+        self.delay, self.inputs = delay, []
+
+    def refresh(self, input_data):
+        self.calls += 1
+        self.inputs.append(input_data)
+        time.sleep(self.delay)
         return PairEvidenceResult(input_data.generation, input_data.context)
 
 
@@ -341,3 +353,88 @@ def test_reset_discards_stale_pair_result_without_leaving_old_observability() ->
         "Pair coverage: no related picks; Meta/Personal only; no pair enrichment"
     )
     window.close()
+
+
+def test_visible_window_survives_rapid_enemy_edits_and_retires_pair_threads() -> None:
+    app = QApplication.instance() or QApplication([])
+    original_quit_on_last_window_closed = app.quitOnLastWindowClosed()
+    app.setQuitOnLastWindowClosed(True)
+    try:
+        heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 10))
+        patch = Patch("p", "7.40", date(2026, 1, 1))
+        service = RecordingSlowPairService()
+        window = create_main_window(
+            ManualDraftSession(heroes, patch),
+            evidence_by_role=_role_bundles(heroes, patch),
+            pair_service=service,  # type: ignore[arg-type]
+            pair_debounce_ms=0,
+        )
+        window.show()
+        table = window.findChild(QTableWidget)
+        assert table is not None and window.pair_refresh_controller is not None
+        controller = window.pair_refresh_controller
+        table.selectRow(0)
+        _button(window, "Add Enemy").click()
+        outcome = []
+        deadline = time.monotonic() + 3
+
+        def queue_latest_enemies() -> None:
+            if not service.inputs:
+                QTimer.singleShot(10, queue_latest_enemies)
+                return
+            for _ in range(3):
+                table.selectRow(0)
+                _button(window, "Add Enemy").click()
+
+        def finish_after_retirement() -> None:
+            if (
+                len(service.inputs) == 2
+                and controller.active_thread is None
+                and not controller.findChildren(QThread)
+            ):
+                outcome.append(
+                    window.isVisible()
+                    and "enemies 4" in _label(window, "pair-refresh-context").text()
+                    and len(service.inputs[-1].context.enemy_ids) == 4
+                )
+                window.close()
+                return
+            if time.monotonic() >= deadline:
+                outcome.append(False)
+                controller.begin_shutdown()
+                window.close()
+                return
+            QTimer.singleShot(10, finish_after_retirement)
+
+        QTimer.singleShot(10, queue_latest_enemies)
+        QTimer.singleShot(10, finish_after_retirement)
+        app.exec()
+        assert outcome == [True]
+        assert [len(input_data.context.enemy_ids) for input_data in service.inputs] == [1, 4]
+    finally:
+        app.setQuitOnLastWindowClosed(original_quit_on_last_window_closed)
+
+
+def test_reset_then_close_during_active_pair_work_retires_without_restarting() -> None:
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = RecordingSlowPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    assert table is not None and window.pair_refresh_controller is not None
+    controller = window.pair_refresh_controller
+    table.selectRow(0)
+    _button(window, "Add Enemy").click()
+    _wait(app, lambda: len(service.inputs) == 1)
+    _button(window, "Reset Draft").click()
+    window.close()
+    _wait(app, lambda: not window.isVisible() and controller.active_thread is None)
+    app.processEvents()
+    assert len(service.inputs) == 1 and controller.findChildren(QThread) == []

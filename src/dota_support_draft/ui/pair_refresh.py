@@ -79,6 +79,7 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         self._active: PairEvidenceInput | None = None
         self._thread: QThread | None = None
         self._worker: PairEvidenceWorker | None = None
+        self._retired_workers: list[PairEvidenceWorker] = []
         self._shutting_down = False
         self._shutdown_complete: Callable[[], None] | None = None
         self._timer = QTimer(self)
@@ -128,13 +129,18 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         thread = QThread(self)
         worker = PairEvidenceWorker(self._service, input_data)
         self._thread, self._worker = thread, worker
+        self._retired_workers.append(worker)
+        worker_token = id(worker)
+        worker.destroyed.connect(
+            lambda _=None, token=worker_token: self._release_retired_worker(token)
+        )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.completed.connect(self._on_completed)
         worker.failed.connect(self._on_failed)
         worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
         thread.finished.connect(self._on_thread_finished)
-        thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.start()
 
@@ -173,6 +179,12 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
                 QTimer.singleShot(0, callback)
         elif self._pending is not None:
             self._timer.start(0)
+
+    def _release_retired_worker(self, token: int) -> None:
+        """Release only the Python ownership record after Qt has deleted the worker."""
+        self._retired_workers[:] = [
+            worker for worker in self._retired_workers if id(worker) != token
+        ]
 
     def _is_current(self, result: PairEvidenceResult) -> bool:
         return (

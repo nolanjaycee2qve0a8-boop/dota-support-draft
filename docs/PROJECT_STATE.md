@@ -20,7 +20,7 @@ Providers → Normalization → Domain → Draft / Scoring → UI
 | DOTA-004 | `e2a6c0a` |
 | DOTA-005 | `46f978a` |
 
-`main` is currently `46f978a` (`DOTA-005: async pair evidence refresh (#4)`). DOTA-005 is closed and there is no active product implementation task.
+DOTA-005 was merged to `main` at `46f978a` (`DOTA-005: async pair evidence refresh (#4)`). DOTA-005 is closed and there is no active product implementation task.
 
 DOTA-005 was verified with a 250 ms debounce, background `QThread` pair evidence refresh, latest-state-wins scheduling, a bounded top-8 shortlist, at most three cold requests, cooperative deferred shutdown, 146 tests, and Windows live validation.
 

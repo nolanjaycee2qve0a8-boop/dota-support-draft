@@ -8,7 +8,7 @@ This repository is maintained through a Manager/Worker workflow.
 - The Manager reviews the exact diff and the reported verification before directing further work.
 - The user controls push, pull-request creation, and merge operations unless a later instruction explicitly grants that authority.
 
-Every Worker engineering task must begin with a `Recommended reasoning` level (`Terra high`, `Terra medium`, or `Terra low`) and a short reason for that level.
+Every Worker engineering task must begin with `Recommended reasoning: Terra 高`, `Recommended reasoning: Terra 中`, or `Recommended reasoning: Terra 低`, plus a short reason for that level.
 
 Every completion report must include the task identifier, starting SHA, resulting commit SHA, branch, `git status`, whether anything was pushed, verification results, and risks or open decisions.
 

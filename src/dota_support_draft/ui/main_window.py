@@ -1,16 +1,23 @@
 from collections.abc import Callable
 from typing import Any
 
-from dota_support_draft.domain import Hero, PersonalHeroStat, Role
+from dota_support_draft.domain import (
+    EvidenceSet,
+    Hero,
+    PersonalHeroStat,
+    Role,
+    RoleEvidenceBundle,
+    RoleEvidenceBundles,
+)
 from dota_support_draft.draft import (
     CandidateRow,
     ManualDraftSession,
     build_candidate_rows,
     filter_candidates,
-    format_optional_count,
     format_optional_rate,
     format_player_status,
 )
+from dota_support_draft.scoring import ExperimentalEvidenceScoringEngine
 
 
 def create_main_window(
@@ -19,6 +26,8 @@ def create_main_window(
     initial_status: str = "Loading data...",
     player: object | None = None,
     personal_error: str | None = None,
+    evidence_by_role: RoleEvidenceBundles | None = None,
+    stratz_freshness_warning: str | None = None,
 ) -> object:
     """Thin UI binding; session owns all draft invariants and candidate eligibility."""
     from PySide6.QtCore import Qt
@@ -37,6 +46,10 @@ def create_main_window(
         QWidget,
     )
 
+    evidence_by_role = evidence_by_role or RoleEvidenceBundles(
+        RoleEvidenceBundle(Role.POSITION_4, EvidenceSet(), "Recommendation evidence unavailable"),
+        RoleEvidenceBundle(Role.POSITION_5, EvidenceSet(), "Recommendation evidence unavailable"),
+    )
     window = QMainWindow()
     window.setWindowTitle("Dota Support Draft Assistant")
     contents = QWidget()
@@ -51,10 +64,15 @@ def create_main_window(
     layout.addWidget(status)
     if warning:
         layout.addWidget(QLabel(f"Personal data unavailable: {warning}"))
+    evidence_label = QLabel()
+    layout.addWidget(evidence_label)
+    if stratz_freshness_warning:
+        layout.addWidget(QLabel(stratz_freshness_warning))
     role_row = QHBoxLayout()
     four = QRadioButton("Position 4")
     five = QRadioButton("Position 5")
-    four.setChecked(True)
+    four.setChecked(session is None or session.role is Role.POSITION_4)
+    five.setChecked(session is not None and session.role is Role.POSITION_5)
     role_row.addWidget(four)
     role_row.addWidget(five)
     layout.addLayout(role_row)
@@ -82,14 +100,24 @@ def create_main_window(
     for button in (add_ally, add_enemy, ban, remove_ally, remove_enemy, unban, reset):
         controls.addWidget(button)
     layout.addLayout(controls)
-    layout.addWidget(
-        QLabel("Candidate list — scoring not enabled. Personal history is ALL-TIME; ROLE UNKNOWN.")
+    layout.addWidget(QLabel("Personal history is ALL-TIME; ROLE UNKNOWN."))
+    candidates = QTableWidget(0, 8)
+    candidates.setHorizontalHeaderLabels(
+        [
+            "Hero",
+            "Experimental Score",
+            "Confidence",
+            "Meta",
+            "Counter",
+            "Synergy",
+            "Personal",
+            "Why",
+        ]
     )
-    candidates = QTableWidget(0, 5)
-    candidates.setHorizontalHeaderLabels(["Hero", "Games", "Wins", "Win Rate", "Status"])
     layout.addWidget(candidates)
     if session is not None:
         rendered_rows: list[CandidateRow] = []
+        scorer = ExperimentalEvidenceScoringEngine()
         hero_by_id = {hero.hero_id: hero for hero in session.heroes}
 
         def refresh() -> None:
@@ -108,19 +136,37 @@ def create_main_window(
                 item = QListWidgetItem(hero.localized_name or hero.canonical_name)
                 item.setData(Qt.UserRole, hero.hero_id)
                 bans.addItem(item)
+            bundle = evidence_by_role.for_role(session.role)
+            evidence_label.setText(
+                bundle.error
+                or (
+                    "Experimental recommendation — STRATZ current-week position evidence; "
+                    "not a calibrated win probability; not patch-isolated."
+                )
+            )
+            recommendations = scorer.rank(
+                session.to_draft_state(), session.candidates, bundle.evidence, personal_stats
+            )
             rows = filter_candidates(
-                build_candidate_rows(session.candidates, personal_stats), search.text()
+                build_candidate_rows(session.candidates, personal_stats, recommendations),
+                search.text(),
             )
             rendered_rows[:] = rows
             candidates.setRowCount(len(rows))
             for index, row in enumerate(rows):
+                components = dict(row.experimental_components)
                 for column, value in enumerate(
                     (
                         row.display_name,
-                        format_optional_count(row.personal_matches),
-                        format_optional_count(row.personal_wins),
-                        format_optional_rate(row.personal_win_rate),
-                        row.status,
+                        "—" if row.experimental_score is None else f"{row.experimental_score:.1f}",
+                        "—"
+                        if row.evidence_confidence is None
+                        else f"{row.evidence_confidence:.0%}",
+                        format_optional_rate(components.get("meta")),
+                        format_optional_rate(components.get("counter")),
+                        format_optional_rate(components.get("synergy")),
+                        format_optional_rate(components.get("personal")),
+                        row.explanation or row.status,
                     )
                 ):
                     candidates.setItem(index, column, QTableWidgetItem(str(value)))
@@ -166,10 +212,12 @@ def create_main_window(
         def choose_four(checked: bool) -> None:
             if checked:
                 session.set_role(Role.POSITION_4)
+                refresh()
 
         def choose_five(checked: bool) -> None:
             if checked:
                 session.set_role(Role.POSITION_5)
+                refresh()
 
         reset.clicked.connect(reset_draft)
         four.toggled.connect(choose_four)

@@ -13,6 +13,7 @@ class Settings:
     player_account_id: str | None = None
     opendota_api_token: str | None = None
     stratz_api_token: str | None = None
+    stratz_rank_bracket: str | None = None
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -24,4 +25,5 @@ class Settings:
             player_account_id=os.environ.get("DOTA_SUPPORT_ACCOUNT_ID"),
             opendota_api_token=os.environ.get("OPENDOTA_API_TOKEN"),
             stratz_api_token=os.environ.get("STRATZ_API_TOKEN"),
+            stratz_rank_bracket=os.environ.get("STRATZ_RANK_BRACKET"),
         )

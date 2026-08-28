@@ -1,3 +1,13 @@
+from .evidence import (
+    CounterEvidence,
+    EvidenceScope,
+    EvidenceScopeKind,
+    EvidenceSet,
+    RoleEvidenceBundle,
+    RoleEvidenceBundles,
+    RoleMetaEvidence,
+    SynergyEvidence,
+)
 from .models import (
     CapabilityScore,
     DataProvenance,
@@ -38,4 +48,12 @@ __all__ = [
     "PlayerProfileState",
     "Role",
     "TeamSide",
+    "CounterEvidence",
+    "EvidenceScope",
+    "EvidenceScopeKind",
+    "EvidenceSet",
+    "RoleMetaEvidence",
+    "RoleEvidenceBundle",
+    "RoleEvidenceBundles",
+    "SynergyEvidence",
 ]

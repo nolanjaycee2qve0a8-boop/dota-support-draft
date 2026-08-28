@@ -23,6 +23,7 @@ class PairRefreshState(StrEnum):
     READY = "READY"
     PARTIAL = "PARTIAL"
     ERROR = "ERROR"
+    SHUTTING_DOWN = "SHUTTING_DOWN"
 
 
 class PairServiceProtocol(Protocol):
@@ -78,7 +79,8 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         self._active: PairEvidenceInput | None = None
         self._thread: QThread | None = None
         self._worker: PairEvidenceWorker | None = None
-        self._stopped = False
+        self._shutting_down = False
+        self._shutdown_complete: Callable[[], None] | None = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(debounce_ms)
@@ -92,8 +94,12 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
     def active_thread(self) -> QThread | None:
         return self._thread
 
+    @property
+    def shutting_down(self) -> bool:
+        return self._shutting_down
+
     def schedule(self, input_data: PairEvidenceInput) -> None:
-        if self._stopped:
+        if self._shutting_down:
             return
         self._generation += 1
         input_data = PairEvidenceInput(
@@ -114,7 +120,7 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
 
     @Slot()  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
     def _dispatch_latest(self) -> None:
-        if self._stopped or self._active is not None or self._pending is None:
+        if self._shutting_down or self._active is not None or self._pending is None:
             return
         input_data, self._pending = self._pending, None
         self._active = input_data
@@ -127,8 +133,9 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         worker.completed.connect(self._on_completed)
         worker.failed.connect(self._on_failed)
         worker.finished.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
         thread.finished.connect(self._on_thread_finished)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
         thread.start()
 
     @Slot(object)  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
@@ -148,7 +155,11 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
 
     @Slot(str)  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
     def _on_failed(self, message: str) -> None:
-        if self._active is not None and self._active.generation == self._generation:
+        if (
+            not self._shutting_down
+            and self._active is not None
+            and self._active.generation == self._generation
+        ):
             self._set_state(PairRefreshState.ERROR, f"Pair evidence unavailable: {message}")
 
     @Slot()  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
@@ -156,21 +167,34 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         self._active = None
         self._thread = None
         self._worker = None
-        if not self._stopped and self._pending is not None:
+        if self._shutting_down:
+            callback, self._shutdown_complete = self._shutdown_complete, None
+            if callback is not None:
+                QTimer.singleShot(0, callback)
+        elif self._pending is not None:
             self._timer.start(0)
 
     def _is_current(self, result: PairEvidenceResult) -> bool:
         return (
-            not self._stopped
+            not self._shutting_down
             and result.generation == self._generation
             and result.context == self._current_context()
         )
 
-    def stop(self, wait_ms: int = 1500) -> None:
-        self._stopped = True
+    def begin_shutdown(self, on_complete: Callable[[], None] | None = None) -> bool:
+        """Reject future work without blocking GUI; return whether a worker must retire first."""
+        if self._shutting_down:
+            if on_complete is not None:
+                self._shutdown_complete = on_complete
+            return self._active is not None
+        self._shutting_down = True
         self._generation += 1
         self._pending = None
         self._timer.stop()
-        if self._thread is not None and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait(wait_ms)
+        self._shutdown_complete = on_complete
+        self._set_state(PairRefreshState.SHUTTING_DOWN, "Finishing pair refresh before closing…")
+        return self._active is not None
+
+    def stop(self) -> None:
+        """Application-controller hook; worker retirement remains cooperative and non-blocking."""
+        self.begin_shutdown()

@@ -54,11 +54,21 @@ class DraftMainWindow(QMainWindow):  # type: ignore[misc]  # PySide6 base is inc
     def __init__(self) -> None:
         super().__init__()
         self.pair_refresh_controller: PairEvidenceRefreshController | None = None
+        self._deferred_close_ready = False
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.pair_refresh_controller is not None:
-            self.pair_refresh_controller.stop()
-        super().closeEvent(event)
+        if self._deferred_close_ready:
+            event.accept()
+            return
+        controller = self.pair_refresh_controller
+        if controller is not None and controller.begin_shutdown(self._complete_deferred_close):
+            event.ignore()
+            return
+        event.accept()
+
+    def _complete_deferred_close(self) -> None:
+        self._deferred_close_ready = True
+        self.close()
 
 
 def create_main_window(
@@ -225,6 +235,7 @@ def create_main_window(
                 PairRefreshState.ERROR: (
                     "Pair evidence unavailable; current-week Meta remains active"
                 ),
+                PairRefreshState.SHUTTING_DOWN: "Finishing pair refresh before closing…",
             }
             pair_label.setText(message or labels[state])
 

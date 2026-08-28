@@ -6,7 +6,7 @@ from collections.abc import Callable
 from enum import StrEnum
 from typing import Protocol
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 
 from dota_support_draft.draft import (
     DraftPairEvidenceService,
@@ -51,6 +51,20 @@ class PairEvidenceWorker(QObject):  # type: ignore[misc]  # PySide6 QObject stub
             self.finished.emit()
 
 
+class RetiredWorkerRecord(QObject):  # type: ignore[misc]  # PySide6 QObject stub is incomplete.
+    """GUI-affine token bridge for a worker's deferred Qt destruction."""
+
+    released = Signal(int)
+
+    def __init__(self, token: int, parent: QObject) -> None:
+        super().__init__(parent)
+        self._token = token
+
+    @Slot()  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
+    def notify_worker_destroyed(self) -> None:
+        self.released.emit(self._token)
+
+
 class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 QObject stub is incomplete.
     """One active worker plus one replaceable pending snapshot; HTTP is cooperative only."""
 
@@ -79,7 +93,10 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         self._active: PairEvidenceInput | None = None
         self._thread: QThread | None = None
         self._worker: PairEvidenceWorker | None = None
-        self._retired_workers: list[PairEvidenceWorker] = []
+        self._retired_workers: dict[int, PairEvidenceWorker] = {}
+        self._retired_worker_records: dict[int, RetiredWorkerRecord] = {}
+        self._retired_worker_cleanup_thread: QThread | None = None
+        self._next_retired_worker_token = 0
         self._shutting_down = False
         self._shutdown_complete: Callable[[], None] | None = None
         self._timer = QTimer(self)
@@ -98,6 +115,14 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
     @property
     def shutting_down(self) -> bool:
         return self._shutting_down
+
+    @property
+    def retired_worker_count(self) -> int:
+        return len(self._retired_workers)
+
+    @property
+    def retired_worker_cleanup_thread(self) -> QThread | None:
+        return self._retired_worker_cleanup_thread
 
     def schedule(self, input_data: PairEvidenceInput) -> None:
         if self._shutting_down:
@@ -129,11 +154,13 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         thread = QThread(self)
         worker = PairEvidenceWorker(self._service, input_data)
         self._thread, self._worker = thread, worker
-        self._retired_workers.append(worker)
-        worker_token = id(worker)
-        worker.destroyed.connect(
-            lambda _=None, token=worker_token: self._release_retired_worker(token)
-        )
+        self._next_retired_worker_token += 1
+        worker_token = self._next_retired_worker_token
+        self._retired_workers[worker_token] = worker
+        record = RetiredWorkerRecord(worker_token, self)
+        self._retired_worker_records[worker_token] = record
+        worker.destroyed.connect(record.notify_worker_destroyed, Qt.ConnectionType.QueuedConnection)
+        record.released.connect(self._release_retired_worker, Qt.ConnectionType.QueuedConnection)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.completed.connect(self._on_completed)
@@ -180,11 +207,14 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         elif self._pending is not None:
             self._timer.start(0)
 
+    @Slot(int)  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
     def _release_retired_worker(self, token: int) -> None:
         """Release only the Python ownership record after Qt has deleted the worker."""
-        self._retired_workers[:] = [
-            worker for worker in self._retired_workers if id(worker) != token
-        ]
+        self._retired_worker_cleanup_thread = QThread.currentThread()
+        self._retired_workers.pop(token, None)
+        record = self._retired_worker_records.pop(token, None)
+        if record is not None:
+            record.deleteLater()
 
     def _is_current(self, result: PairEvidenceResult) -> bool:
         return (

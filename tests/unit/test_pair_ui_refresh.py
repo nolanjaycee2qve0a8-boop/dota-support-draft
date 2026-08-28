@@ -391,11 +391,13 @@ def test_visible_window_survives_rapid_enemy_edits_and_retires_pair_threads() ->
                 len(service.inputs) == 2
                 and controller.active_thread is None
                 and not controller.findChildren(QThread)
+                and controller.retired_worker_count == 0
             ):
                 outcome.append(
                     window.isVisible()
                     and "enemies 4" in _label(window, "pair-refresh-context").text()
                     and len(service.inputs[-1].context.enemy_ids) == 4
+                    and controller.retired_worker_cleanup_thread == app.thread()
                 )
                 window.close()
                 return
@@ -435,6 +437,17 @@ def test_reset_then_close_during_active_pair_work_retires_without_restarting() -
     _wait(app, lambda: len(service.inputs) == 1)
     _button(window, "Reset Draft").click()
     window.close()
-    _wait(app, lambda: not window.isVisible() and controller.active_thread is None)
+    _wait(
+        app,
+        lambda: (
+            not window.isVisible()
+            and controller.active_thread is None
+            and controller.retired_worker_count == 0
+        ),
+    )
     app.processEvents()
-    assert len(service.inputs) == 1 and controller.findChildren(QThread) == []
+    assert (
+        len(service.inputs) == 1
+        and controller.findChildren(QThread) == []
+        and controller.retired_worker_cleanup_thread == app.thread()
+    )

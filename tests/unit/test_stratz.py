@@ -3,7 +3,18 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from dota_support_draft.domain import EvidenceScopeKind, Hero, Role
+from dota_support_draft.domain import (
+    DataProvenance,
+    DraftState,
+    EvidenceScopeKind,
+    EvidenceSet,
+    Hero,
+    HeroPick,
+    Role,
+    RoleMetaEvidence,
+    TeamSide,
+)
+from dota_support_draft.draft.pair_evidence import DraftPairEvidenceService, make_pair_input
 from dota_support_draft.providers.cache import DiskJsonCache
 from dota_support_draft.providers.errors import (
     PatchResolutionError,
@@ -406,3 +417,67 @@ def test_game_versions_sort_newest_first_and_diagnostic_ignores_response_order(
     diagnostic = provider.game_version_diagnostic(patch)
     assert diagnostic.state is GameVersionFreshness.MATCHED
     assert diagnostic.latest == versions[0]
+
+
+def test_pair_service_cold_budget_is_three_and_cached_profiles_re_filter_locally(
+    tmp_path, patch
+) -> None:
+    candidate = Hero(1, "candidate")
+    ally_one, ally_two = Hero(2, "ally_one"), Hero(3, "ally_two")
+    enemy_one, enemy_two = Hero(4, "enemy_one"), Hero(5, "enemy_two")
+    meta = _stats(
+        [
+            {
+                "heroId": candidate.hero_id,
+                "week": 7,
+                "position": "POSITION_4",
+                "matchCount": 20,
+                "winCount": 10,
+            }
+        ]
+    )
+    counter_profile = _lane(
+        [
+            _lane_row(candidate.hero_id, enemy_one.hero_id),
+            _lane_row(candidate.hero_id, enemy_two.hero_id),
+        ]
+    )
+    synergy_profile = _lane(
+        [
+            _lane_row(candidate.hero_id, ally_one.hero_id),
+            _lane_row(candidate.hero_id, ally_two.hero_id),
+        ]
+    )
+    transport = ScriptedTransport([meta, counter_profile, synergy_profile])
+    service = DraftPairEvidenceService(StratzProvider(DiskJsonCache(tmp_path), "token", transport))
+    base = EvidenceSet(
+        role_meta=(
+            RoleMetaEvidence(
+                candidate,
+                Role.POSITION_4,
+                patch,
+                100,
+                60,
+                0.6,
+                DataProvenance(
+                    "fixture", datetime.now(UTC), "fixture", patch.version, data_kind="TEST/FIXTURE"
+                ),
+            ),
+        )
+    )
+    first_draft = DraftState(
+        (HeroPick(ally_one, TeamSide.ALLY),),
+        (HeroPick(enemy_one, TeamSide.ENEMY),),
+        Role.POSITION_4,
+        patch,
+    )
+    first = service.refresh(make_pair_input(1, first_draft, (candidate,), base, None))
+    assert len(transport.calls) == 3 and first.counters and first.synergies
+    second_draft = DraftState(
+        (HeroPick(ally_two, TeamSide.ALLY),),
+        (HeroPick(enemy_two, TeamSide.ENEMY),),
+        Role.POSITION_4,
+        patch,
+    )
+    second = service.refresh(make_pair_input(2, second_draft, (candidate,), base, None))
+    assert len(transport.calls) == 3 and second.counters and second.synergies

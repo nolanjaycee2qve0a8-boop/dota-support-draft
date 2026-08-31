@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from dota_support_draft.config import PlayerAccountPreferenceStore
 from dota_support_draft.domain import (
     CounterEvidence,
     EvidenceSet,
@@ -81,6 +82,7 @@ def create_main_window(
     evidence_by_role: RoleEvidenceBundles | None = None,
     stratz_freshness_warning: str | None = None,
     pair_service: DraftPairEvidenceService | None = None,
+    player_preferences: PlayerAccountPreferenceStore | None = None,
     pair_debounce_ms: int = PairEvidenceRefreshController.DEBOUNCE_MS,
 ) -> DraftMainWindow:
     """Build the GUI; all draft mutations are local before pair refresh is scheduled."""
@@ -99,6 +101,7 @@ def create_main_window(
         if session is None
         else f"Patch: {session.patch.version} | {player_label} | Core Draft: Ready"
     )
+    status.setObjectName("application-status")
     layout.addWidget(status)
     if warning:
         layout.addWidget(QLabel(f"Personal data unavailable: {warning}"))
@@ -132,6 +135,23 @@ def create_main_window(
     search = QLineEdit()
     search.setPlaceholderText("Hero search")
     layout.addWidget(search)
+    player_config_status = QLabel(
+        "Configure a public numeric Steam32/OpenDota account ID. Changes load after restart."
+    )
+    player_config_status.setObjectName("player-config-status")
+    player_config = QHBoxLayout()
+    player_account_input = QLineEdit()
+    player_account_input.setObjectName("player-account-input")
+    player_account_input.setPlaceholderText("Public Steam32/OpenDota account ID")
+    configure_player = QPushButton("Configure Player")
+    configure_player.setObjectName("configure-player")
+    clear_player = QPushButton("Clear Player")
+    clear_player.setObjectName("clear-player")
+    player_config.addWidget(player_account_input)
+    player_config.addWidget(configure_player)
+    player_config.addWidget(clear_player)
+    layout.addWidget(player_config_status)
+    layout.addLayout(player_config)
     controls = QHBoxLayout()
     add_ally, add_enemy, ban = QPushButton("Add Ally"), QPushButton("Add Enemy"), QPushButton("Ban")
     remove_ally, remove_enemy, unban, reset = (
@@ -444,6 +464,33 @@ def create_main_window(
             if window.pair_refresh_controller is not None:
                 window.pair_refresh_controller.refresh_now(pair_input())
 
+        def set_player_config_status(message: str) -> None:
+            status.setText(f"Patch: {session.patch.version} | {message} | Core Draft: Ready")
+            player_config_status.setText(message)
+
+        def save_player_account() -> None:
+            if player_preferences is None:
+                return
+            try:
+                account_id = player_preferences.save_account_id(player_account_input.text())
+            except ValueError as error:
+                player_config_status.setText(str(error))
+                return
+            player_account_input.setText(account_id)
+            set_player_config_status(
+                "Player account saved; restart required to load Personal history."
+            )
+
+        def clear_player_account() -> None:
+            if player_preferences is None:
+                return
+            player_preferences.clear_account_id()
+            player_account_input.clear()
+            set_player_config_status(
+                "Player account cleared; restart required. "
+                "An environment override still takes priority."
+            )
+
         def chosen() -> Hero | None:
             row = selected_candidate_row()
             return row.hero if row is not None else None
@@ -493,10 +540,23 @@ def create_main_window(
 
         reset.clicked.connect(reset_draft)
         manual_refresh.clicked.connect(trigger_manual_pair_refresh)
+        configure_player.clicked.connect(save_player_account)
+        clear_player.clicked.connect(clear_player_account)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
         five.toggled.connect(lambda checked: choose_role(Role.POSITION_5, checked))
         search.textChanged.connect(lambda _: refresh())
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
+        if player_preferences is None:
+            player_account_input.setEnabled(False)
+            configure_player.setEnabled(False)
+            clear_player.setEnabled(False)
+            player_config_status.setText(
+                "Local player configuration is unavailable in this window."
+            )
+        else:
+            saved_account_id = player_preferences.load_account_id()
+            if saved_account_id is not None:
+                player_account_input.setText(saved_account_id)
         refresh()
     else:
         for widget in (
@@ -510,6 +570,9 @@ def create_main_window(
             unban,
             reset,
             manual_refresh,
+            player_account_input,
+            configure_player,
+            clear_player,
             search,
             candidates,
         ):

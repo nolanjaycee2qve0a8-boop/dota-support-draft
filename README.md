@@ -26,10 +26,10 @@ From the project root, run:
 
 ```powershell
 cd 'C:\Users\22908\Documents\ChatGPT\野生dota+\dota-support-draft'
-.\scripts\start_dota_support_draft.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_dota_support_draft.ps1
 ```
 
-When the local terminal prompts, paste the Token into its hidden input. Never paste it into chat or commit it to the repository. The existing `python -m dota_support_draft` command remains available for development without this launcher.
+The `Bypass` option applies only to this launch process; it does not change your computer's execution policy. When the local terminal prompts, paste the Token into its hidden input. Never paste it into chat or commit it to the repository. The existing `python -m dota_support_draft` command remains available for development without this launcher.
 
 ## Run
 

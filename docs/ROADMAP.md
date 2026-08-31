@@ -12,3 +12,5 @@ Possible future directions include:
 - Windows packaging.
 
 These are directions for later review, not commitments or approved implementation work.
+
+DOTA-016 records the provider-evidence gate for any future lane-fit work. It does not approve implementation: until that gate is met, any team position or planned lane information must remain manual context rather than statistical lane-fit or recommendation input.

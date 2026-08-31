@@ -38,6 +38,7 @@ from dota_support_draft.domain import (
 )
 from dota_support_draft.draft import (
     CandidateRow,
+    CandidateSortColumn,
     DraftPairEvidenceService,
     ManualDraftSession,
     PairEvidenceContext,
@@ -48,6 +49,7 @@ from dota_support_draft.draft import (
     format_optional_rate,
     format_player_status,
     make_pair_input,
+    sort_candidate_rows,
 )
 from dota_support_draft.scoring import ExperimentalEvidenceScoringEngine
 from dota_support_draft.ui.pair_refresh import PairEvidenceRefreshController, PairRefreshState
@@ -231,6 +233,7 @@ def create_main_window(
     layout.addLayout(controls)
     layout.addWidget(QLabel("Personal history is ALL-TIME; ROLE UNKNOWN."))
     candidates = QTableWidget(0, 8)
+    candidates.setObjectName("candidate-table")
     candidates.setHorizontalHeaderLabels(
         [
             "Hero",
@@ -243,6 +246,16 @@ def create_main_window(
             "Why",
         ]
     )
+    candidate_header = candidates.horizontalHeader()
+    candidate_header.setObjectName("candidate-table-header")
+    candidate_header.setSectionsClickable(True)
+    candidate_header.setSortIndicatorShown(False)
+    candidate_sort_status = QLabel(
+        "Candidate display order: default recommendation order — display order only; "
+        "does not change recommendation evidence or score."
+    )
+    candidate_sort_status.setObjectName("candidate-sort-status")
+    layout.addWidget(candidate_sort_status)
     layout.addWidget(candidates)
     explanation_panel = QTextEdit()
     explanation_panel.setObjectName("recommendation-explanation")
@@ -259,6 +272,8 @@ def create_main_window(
         overlay_synergies: tuple[SynergyEvidence, ...] = ()
         latest_pair_result: PairEvidenceResult | None = None
         pair_state = PairRefreshState.IDLE
+        sort_column: CandidateSortColumn | None = None
+        sort_descending = False
 
         def update_composition_context() -> None:
             assignments = session.to_draft_state().allied_picks
@@ -315,8 +330,39 @@ def create_main_window(
             sync_composition_controls()
 
         def selected_candidate_row() -> CandidateRow | None:
+            if not candidates.selectedItems():
+                return None
             row = candidates.currentRow()
             return rendered_rows[row] if 0 <= row < len(rendered_rows) else None
+
+        def update_candidate_sort_status() -> None:
+            if sort_column is None:
+                candidate_sort_status.setText(
+                    "Candidate display order: default recommendation order — display order only; "
+                    "does not change recommendation evidence or score."
+                )
+                candidate_header.setSortIndicatorShown(False)
+                return
+            labels = {
+                CandidateSortColumn.HERO: "Hero",
+                CandidateSortColumn.EXPERIMENTAL_SCORE: "Experimental Score",
+                CandidateSortColumn.CONFIDENCE: "Confidence",
+                CandidateSortColumn.META: "Meta",
+                CandidateSortColumn.COUNTER: "Counter",
+                CandidateSortColumn.SYNERGY: "Synergy",
+                CandidateSortColumn.PERSONAL: "Personal",
+                CandidateSortColumn.WHY: "Why",
+            }
+            direction = "descending" if sort_descending else "ascending"
+            candidate_sort_status.setText(
+                f"Candidate display order: {labels[sort_column]} {direction} — display order only; "
+                "does not change recommendation evidence or score."
+            )
+            candidate_header.setSortIndicatorShown(True)
+            candidate_header.setSortIndicator(
+                int(sort_column),
+                Qt.SortOrder.DescendingOrder if sort_descending else Qt.SortOrder.AscendingOrder,
+            )
 
         def update_recommendation_explanation() -> None:
             row = selected_candidate_row()
@@ -501,6 +547,8 @@ def create_main_window(
                 build_candidate_rows(session.candidates, personal_stats, recommendations),
                 search.text(),
             )
+            if sort_column is not None:
+                rows = sort_candidate_rows(rows, sort_column, sort_descending)
             rendered_rows[:] = rows
             candidates.setRowCount(len(rows))
             for index, row in enumerate(rows):
@@ -527,6 +575,20 @@ def create_main_window(
                 candidates.setCurrentCell(selected_index, 0)
             update_recommendation_explanation()
             update_draft_action_controls()
+
+        def sort_candidates(section: int) -> None:
+            nonlocal sort_column, sort_descending
+            try:
+                selected_column = CandidateSortColumn(section)
+            except ValueError:
+                return
+            if sort_column is selected_column:
+                sort_descending = not sort_descending
+            else:
+                sort_column = selected_column
+                sort_descending = False
+            update_candidate_sort_status()
+            refresh()
 
         def set_pair_state(state: PairRefreshState, message: str | None) -> None:
             nonlocal pair_state
@@ -719,6 +781,7 @@ def create_main_window(
         allies.itemSelectionChanged.connect(update_draft_action_controls)
         enemies.itemSelectionChanged.connect(update_draft_action_controls)
         bans.itemSelectionChanged.connect(update_draft_action_controls)
+        candidate_header.sectionClicked.connect(sort_candidates)
         if player_preferences is None:
             player_account_input.setEnabled(False)
             configure_player.setEnabled(False)
@@ -731,6 +794,7 @@ def create_main_window(
             if saved_account_id is not None:
                 player_account_input.setText(saved_account_id)
         refresh()
+        update_candidate_sort_status()
     else:
         for widget in (
             four,

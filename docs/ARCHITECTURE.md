@@ -24,6 +24,8 @@ DOTA-013 stores manual ally team-position and planned-lane values in `ManualDraf
 
 DOTA-014 keeps manual draft actions at the same local boundary. The UI derives ally/enemy capacity and the unrestricted ban count from `ManualDraftSession`, and exposes a separate recoverable-action status without replacing bootstrap, player, or pair diagnostics. Only a successful `ManualDraftSession` mutation rerenders and calls the pair controller; disabled, unselected, capacity-full, or validation-failed actions do not create a worker or provider request.
 
+DOTA-015 adds a local `CandidateSortColumn` display-order boundary after candidate rows have been built and filtered. It sorts typed `CandidateRow` numeric fields and evidence components rather than rendered strings; unavailable numeric values remain last for both directions, and stable ties retain the default recommendation order. Sorting neither changes the canonical candidate sequence passed to pair shortlist construction nor calls the pair controller.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

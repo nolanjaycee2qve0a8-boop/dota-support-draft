@@ -14,6 +14,8 @@ DOTA-004R2's live branch is `STRATZ current-week role-meta batch → immutable P
 
 DOTA-005 implements that boundary as `DraftMainWindow → PairEvidenceRefreshController → QTimer (250 ms) → dedicated QThread worker → DraftPairEvidenceService → STRATZ → queued GUI result`. The controller permits one active worker and one replaceable newest pending snapshot. Results must match both generation and semantic draft context before the GUI atomically replaces its context-keyed Counter/Synergy overlay.
 
+DOTA-006 renders that existing semantic context locally in the window: current P4/P5 role, allied/enemy counts, the deterministic pair shortlist, and explicit Counter/Synergy availability. The rendered context is derived from the same current `PairEvidenceInput`; it does not schedule work, fetch data, or preserve a stale overlay after a draft change.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

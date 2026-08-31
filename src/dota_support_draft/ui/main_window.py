@@ -102,8 +102,15 @@ def create_main_window(
     if warning:
         layout.addWidget(QLabel(f"Personal data unavailable: {warning}"))
     evidence_label, pair_label = QLabel(), QLabel("Pair evidence: idle")
+    pair_label.setObjectName("pair-refresh-status")
+    pair_context_label = QLabel("Pair refresh: idle — no related picks")
+    pair_context_label.setObjectName("pair-refresh-context")
+    pair_coverage_label = QLabel("Pair coverage: Meta/Personal only; no pair enrichment")
+    pair_coverage_label.setObjectName("pair-refresh-coverage")
     layout.addWidget(evidence_label)
     layout.addWidget(pair_label)
+    layout.addWidget(pair_context_label)
+    layout.addWidget(pair_coverage_label)
     if stratz_freshness_warning:
         layout.addWidget(QLabel(stratz_freshness_warning))
     role_row = QHBoxLayout()
@@ -157,6 +164,8 @@ def create_main_window(
         overlay_context: PairEvidenceContext | None = None
         overlay_counters: tuple[CounterEvidence, ...] = ()
         overlay_synergies: tuple[SynergyEvidence, ...] = ()
+        latest_pair_result: PairEvidenceResult | None = None
+        pair_state = PairRefreshState.IDLE
 
         def pair_input(generation: int = 0) -> PairEvidenceInput:
             return make_pair_input(
@@ -177,6 +186,63 @@ def create_main_window(
             if overlay_context == context:
                 return EvidenceSet(base.role_meta, overlay_counters, overlay_synergies)
             return EvidenceSet(role_meta=base.role_meta)
+
+        def describe_pair_observability() -> None:
+            input_data = pair_input()
+            context = input_data.context
+            shortlist = ", ".join(
+                hero.localized_name or hero.canonical_name for hero in input_data.shortlist
+            )
+            shortlist_text = shortlist or "none"
+            role_text = "Position 4" if context.role is Role.POSITION_4 else "Position 5"
+            related = len(context.ally_ids) + len(context.enemy_ids)
+            pair_context_label.setText(
+                "Pair refresh: "
+                f"{role_text} | allies {len(context.ally_ids)} | enemies {len(context.enemy_ids)} "
+                f"| shortlist ({len(input_data.shortlist)}): {shortlist_text}"
+            )
+            if not related:
+                pair_coverage_label.setText(
+                    "Pair coverage: no related picks; Meta/Personal only; no pair enrichment"
+                )
+                return
+            current_result = (
+                latest_pair_result
+                if latest_pair_result and (latest_pair_result.context == context)
+                else None
+            )
+
+            def component(name: str, requested: bool, error: str | None) -> str:
+                if not requested:
+                    return f"{name}: not requested"
+                if error:
+                    return f"{name}: unavailable ({error})"
+                if current_result is not None:
+                    return f"{name}: available"
+                if pair_state in (PairRefreshState.DEBOUNCING, PairRefreshState.LOADING):
+                    return f"{name}: pending"
+                if pair_state is PairRefreshState.ERROR:
+                    return f"{name}: unavailable (refresh error)"
+                return f"{name}: awaiting refresh"
+
+            pair_coverage_label.setText(
+                "Pair coverage: "
+                + "; ".join(
+                    (
+                        component(
+                            "Counter",
+                            bool(context.enemy_ids),
+                            current_result.counter_error if current_result else None,
+                        ),
+                        component(
+                            "Synergy",
+                            bool(context.ally_ids),
+                            current_result.synergy_error if current_result else None,
+                        ),
+                    )
+                )
+                + ". Meta/Personal remain available without pair enrichment."
+            )
 
         def refresh() -> None:
             allies.clear()
@@ -199,6 +265,7 @@ def create_main_window(
                     "not a calibrated win probability; not patch-isolated."
                 )
             )
+            describe_pair_observability()
             recommendations = scorer.rank(
                 session.to_draft_state(), session.candidates, effective_evidence(), personal_stats
             )
@@ -224,6 +291,8 @@ def create_main_window(
                     candidates.setItem(index, column, QTableWidgetItem(str(value)))
 
         def set_pair_state(state: PairRefreshState, message: str | None) -> None:
+            nonlocal pair_state
+            pair_state = state
             labels = {
                 PairRefreshState.IDLE: "Pair evidence: idle",
                 PairRefreshState.DEBOUNCING: (
@@ -238,9 +307,11 @@ def create_main_window(
                 PairRefreshState.SHUTTING_DOWN: "Finishing pair refresh before closing…",
             }
             pair_label.setText(message or labels[state])
+            describe_pair_observability()
 
         def apply_pair_result(result: PairEvidenceResult) -> None:
-            nonlocal overlay_context, overlay_counters, overlay_synergies
+            nonlocal latest_pair_result, overlay_context, overlay_counters, overlay_synergies
+            latest_pair_result = result
             overlay_context = result.context
             overlay_counters, overlay_synergies = result.counters, result.synergies
             refresh()

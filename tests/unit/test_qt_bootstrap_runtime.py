@@ -21,6 +21,11 @@ class SlowService:
         return DraftBootstrapData(Patch("p", "7.40", date(2026, 1, 1)), (Hero(1, "hero"),))
 
 
+class ImmediateService:
+    def load(self, account_id: str | None) -> DraftBootstrapData:
+        return DraftBootstrapData(Patch("p", "7.40", date(2026, 1, 1)), (Hero(1, "hero"),))
+
+
 def wait(app: QApplication, predicate) -> None:
     deadline = time.monotonic() + 3
     while not predicate() and time.monotonic() < deadline:
@@ -70,3 +75,34 @@ def test_close_during_bootstrap_stops_thread_with_bounded_wait() -> None:
     controller.stop()
     wait(app, lambda: not controller.thread.isRunning())
     controller.loading.close()
+
+
+def test_repeated_bootstrap_handoff_keeps_application_event_loop_alive() -> None:
+    app = QApplication.instance() or QApplication([])
+    original_quit_on_last_window_closed = app.quitOnLastWindowClosed()
+    app.setQuitOnLastWindowClosed(True)
+    try:
+        for _ in range(2):
+            controller = ApplicationController(app, ImmediateService(), None)
+            checkpoint = []
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.timeout.connect(
+                lambda current=controller, observed=checkpoint: (
+                    observed.append(
+                        current.replacement is not None
+                        and current.replacement.isVisible()
+                        and current.parent() is app
+                    ),
+                    app.quit(),
+                )
+            )
+            controller.start()
+            timer.start(300)
+            app.exec()
+            assert checkpoint == [True]
+            assert controller.replacement is not None
+            controller.replacement.close()
+            controller.stop()
+    finally:
+        app.setQuitOnLastWindowClosed(original_quit_on_last_window_closed)

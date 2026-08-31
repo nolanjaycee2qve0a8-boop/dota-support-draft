@@ -14,6 +14,8 @@ DOTA-004 adds a position-aware experimental evidence/scoring boundary. STRATZ is
 
 DOTA-005 adds event-driven, debounced background pair enrichment for a bounded top-8 preliminary shortlist. Draft edits remain immediately local; stale pair work is ignored and Meta/Familiarity stays available while pair data loads or fails.
 
+DOTA-006 makes the existing pair-refresh boundary observable: the UI shows the current role, ally/enemy scope, deterministic shortlist, and Counter/Synergy availability. It adds no manual refresh action, provider call, or scoring change.
+
 ## Run
 
 Install Python 3.11+ dependencies, then run from this directory:

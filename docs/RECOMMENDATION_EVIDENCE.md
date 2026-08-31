@@ -33,3 +33,7 @@ For `laneOutcome`, `isWith:true` becomes synergy and `isWith:false` becomes coun
 Only the deterministic `pair-enhanced shortlist` (at most eight legal candidates) receives draft-dependent Counter/Synergy enrichment. It is selected from base role Meta plus personal familiarity using the public-evidence gate, never from prior pair values. All legal candidates remain visible; non-shortlisted candidates score with Meta/Personal and neutral missing pair weights.
 
 Pair work is debounced for 250 ms and latest-state-wins. An in-flight urllib call may finish naturally, but its result is discarded unless its generation and role/allies/enemies/shortlist/rank context exactly match. Partial capability failure retains the successful polarity; complete pair failure falls back to current-week Meta and personal evidence.
+
+## Pair refresh observability
+
+The desktop UI shows the current semantic pair context locally: P4/P5 role, allied and enemy pick counts, and the deterministic ordered shortlist (at most eight heroes). It also distinguishes Counter and Synergy as available, pending, not requested, or unavailable with the reported component error. With no related picks, or while a component is missing, the UI explicitly identifies Meta/Personal-only presentation rather than treating missing pair evidence as zero. Search and candidate-table selection do not alter this context or start pair transport work.

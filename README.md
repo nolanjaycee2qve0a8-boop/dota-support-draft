@@ -20,6 +20,8 @@ DOTA-007 adds `Refresh pair evidence` for the current draft context. It explicit
 
 DOTA-008 adds a read-only selected-candidate explanation panel. It presents the complete local Meta, Counter, Synergy, Personal, confidence, and Why evidence for the current P4/P5 context. Selecting or searching candidates does not request data; the panel explains already calculated experimental ordering evidence, not a win prediction.
 
+DOTA-011 adds a `Configure Player` entry for a public numeric Steam32/OpenDota account ID. The ID is stored only in current-user Windows QSettings, outside the repository, and is read by bootstrap only after the next app restart. Personal history remains all-time and role-unknown. `DOTA_SUPPORT_ACCOUNT_ID` remains a higher-priority development/CI override. This setting does not store Tokens, cookies, or Steam credentials.
+
 ## Windows local Token launch
 
 From the project root, run:

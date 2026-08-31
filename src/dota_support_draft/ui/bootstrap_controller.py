@@ -5,6 +5,7 @@ from typing import Protocol, cast
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
+from dota_support_draft.config import PlayerAccountPreferenceStore
 from dota_support_draft.draft.bootstrap import DraftBootstrapData, DraftBootstrapService
 from dota_support_draft.draft.pair_evidence import DraftPairEvidenceService
 from dota_support_draft.draft.session import ManualDraftSession
@@ -45,6 +46,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
         service: DraftBootstrapService,
         account_id: str | None,
         pair_service: DraftPairEvidenceService | None = None,
+        player_preferences: PlayerAccountPreferenceStore | None = None,
     ) -> None:
         super().__init__(application)
         self.loading: MainWindowProtocol = cast(MainWindowProtocol, create_main_window())
@@ -53,6 +55,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
         self.thread = QThread(self)
         self.worker = BootstrapWorker(service, account_id)
         self.pair_service = pair_service
+        self.player_preferences = player_preferences
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.ready.connect(self.on_ready, Qt.ConnectionType.QueuedConnection)
@@ -80,6 +83,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
                     bootstrap.stratz_freshness.message if bootstrap.stratz_freshness else None
                 ),
                 pair_service=self.pair_service,
+                player_preferences=self.player_preferences,
             ),
         )
         self.replacement.show()

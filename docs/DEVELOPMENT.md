@@ -3,14 +3,14 @@
 This is a `src/` layout project: `python -m dota_support_draft` needs an editable install (recommended) or `PYTHONPATH=src`; pytest's test-only path setting is not a runtime installation.
 
 ```powershell
+cd 'C:\Users\22908\Documents\ChatGPT\野生dota+\dota-support-draft'
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -U pip
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-$env:DOTA_SUPPORT_ACCOUNT_ID = "<steam32-id>" # optional
 .\.venv\Scripts\python.exe -m dota_support_draft
 ```
 
-Without verified STRATZ evidence, the workspace presents legal manual candidates rather than experimental scores. Personal values are all-time history with unknown role. Set `STRATZ_API_TOKEN` only in your local environment; it must never be committed. An optional `STRATZ_RANK_BRACKET` is preserved as scope, never inferred.
+Use the desktop `Configure Player` action to save a public numeric Steam32/OpenDota account ID locally. On Windows it is stored in current-user QSettings, never in the workspace; restart the app before bootstrap loads or removes Personal history. The environment variable `DOTA_SUPPORT_ACCOUNT_ID` remains an optional higher-priority development/CI override. Personal values are all-time history with unknown role. Set `STRATZ_API_TOKEN` only through the local launcher or your local environment; it must never be committed. An optional `STRATZ_RANK_BRACKET` is preserved as scope, never inferred.
 
 `STRATZ_RANK_BRACKET` accepts basic STRATZ values or fine values that map explicitly to their basic bucket. For an interactive live-only check, set the token locally and run `./.venv/Scripts/python.exe -m dota_support_draft.stratz_smoke`; never add the token or response payload to the repository.
 

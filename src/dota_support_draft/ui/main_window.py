@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -168,6 +169,12 @@ def create_main_window(
         ]
     )
     layout.addWidget(candidates)
+    explanation_panel = QTextEdit()
+    explanation_panel.setObjectName("recommendation-explanation")
+    explanation_panel.setReadOnly(True)
+    explanation_panel.setPlaceholderText("Select a candidate hero to inspect its evidence.")
+    explanation_panel.setPlainText("Select a candidate hero to inspect its evidence.")
+    layout.addWidget(explanation_panel)
     if session is not None:
         rendered_rows: list[CandidateRow] = []
         scorer = ExperimentalEvidenceScoringEngine()
@@ -177,6 +184,60 @@ def create_main_window(
         overlay_synergies: tuple[SynergyEvidence, ...] = ()
         latest_pair_result: PairEvidenceResult | None = None
         pair_state = PairRefreshState.IDLE
+
+        def selected_candidate_row() -> CandidateRow | None:
+            row = candidates.currentRow()
+            return rendered_rows[row] if 0 <= row < len(rendered_rows) else None
+
+        def update_recommendation_explanation() -> None:
+            row = selected_candidate_row()
+            if row is None:
+                explanation_panel.setPlainText("Select a candidate hero to inspect its evidence.")
+                return
+            components = dict(row.experimental_components)
+
+            def component_text(name: str) -> str:
+                value = components.get(name)
+                if value is None:
+                    return "unavailable — fixed weight contributes neutral zero"
+                return format_optional_rate(value)
+
+            score = (
+                "unavailable — no applicable public recommendation evidence"
+                if row.experimental_score is None
+                else (
+                    f"{row.experimental_score:.1f} "
+                    "(experimental ordering score; not a win prediction)"
+                )
+            )
+            confidence = (
+                "unavailable"
+                if row.evidence_confidence is None
+                else f"{row.evidence_confidence:.0%}"
+            )
+            role_text = "Position 4" if session.role is Role.POSITION_4 else "Position 5"
+            explanation_panel.setPlainText(
+                "\n".join(
+                    (
+                        f"Candidate: {row.display_name}",
+                        f"Experimental score: {score}",
+                        f"Confidence: {confidence}",
+                        "Evidence:",
+                        f"  Meta: {component_text('meta')}",
+                        f"  Counter: {component_text('counter')}",
+                        f"  Synergy: {component_text('synergy')}",
+                        f"  Personal: {component_text('personal')}",
+                        "Why:",
+                        row.explanation or row.status,
+                        "Context:",
+                        f"  Role: {role_text}",
+                        f"  {pair_coverage_label.text()}",
+                        "  Meta, Counter, and Synergy use current-week role evidence; "
+                        "it is not patch-isolated.",
+                        "  Personal history is all-time and role-unknown.",
+                    )
+                )
+            )
 
         def pair_input(generation: int = 0) -> PairEvidenceInput:
             return make_pair_input(
@@ -278,6 +339,8 @@ def create_main_window(
                 )
 
         def refresh() -> None:
+            previously_selected = selected_candidate_row()
+            previous_hero_id = previously_selected.hero.hero_id if previously_selected else None
             allies.clear()
             enemies.clear()
             bans.clear()
@@ -323,6 +386,15 @@ def create_main_window(
                 )
                 for column, value in enumerate(values):
                     candidates.setItem(index, column, QTableWidgetItem(str(value)))
+            selected_index = next(
+                (index for index, row in enumerate(rows) if row.hero.hero_id == previous_hero_id),
+                None,
+            )
+            if selected_index is None:
+                candidates.clearSelection()
+            else:
+                candidates.setCurrentCell(selected_index, 0)
+            update_recommendation_explanation()
 
         def set_pair_state(state: PairRefreshState, message: str | None) -> None:
             nonlocal pair_state
@@ -343,6 +415,7 @@ def create_main_window(
             pair_label.setText(message or labels[state])
             describe_pair_observability()
             update_manual_refresh_control()
+            update_recommendation_explanation()
 
         def apply_pair_result(result: PairEvidenceResult) -> None:
             nonlocal latest_pair_result, overlay_context, overlay_counters, overlay_synergies
@@ -372,8 +445,8 @@ def create_main_window(
                 window.pair_refresh_controller.refresh_now(pair_input())
 
         def chosen() -> Hero | None:
-            row = candidates.currentRow()
-            return rendered_rows[row].hero if 0 <= row < len(rendered_rows) else None
+            row = selected_candidate_row()
+            return row.hero if row is not None else None
 
         def selected_list_hero(widget: QListWidget) -> Hero | None:
             item = widget.currentItem()
@@ -423,6 +496,7 @@ def create_main_window(
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
         five.toggled.connect(lambda checked: choose_role(Role.POSITION_5, checked))
         search.textChanged.connect(lambda _: refresh())
+        candidates.itemSelectionChanged.connect(update_recommendation_explanation)
         refresh()
     else:
         for widget in (

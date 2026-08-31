@@ -18,6 +18,8 @@ DOTA-006 renders that existing semantic context locally in the window: current P
 
 DOTA-007 adds one user-triggered `refresh_now` entry to the same controller. It assigns a new generation to the current `PairEvidenceInput`, dispatches immediately only when no worker is active, and otherwise replaces the single pending snapshot. It neither bypasses provider caches nor creates a parallel worker; shutdown clears this manual pending work together with ordinary pending work.
 
+DOTA-008's selected-candidate explanation panel consumes the already rendered local `CandidateRow`. It retains a candidate selection across a local rerender only when that hero remains legal and visible; otherwise it shows an explicit empty state. It has no provider or controller dependency: table selection, search, role changes, pair-result overlays, and reset only rerender local presentation data.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

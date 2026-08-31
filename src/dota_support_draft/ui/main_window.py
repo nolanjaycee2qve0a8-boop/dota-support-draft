@@ -7,6 +7,7 @@ from collections.abc import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,10 +29,12 @@ from dota_support_draft.domain import (
     EvidenceSet,
     Hero,
     PersonalHeroStat,
+    PlannedLane,
     Role,
     RoleEvidenceBundle,
     RoleEvidenceBundles,
     SynergyEvidence,
+    TeamPosition,
 )
 from dota_support_draft.draft import (
     CandidateRow,
@@ -126,12 +129,51 @@ def create_main_window(
     layout.addLayout(role_row)
     lists = QHBoxLayout()
     allies, enemies, bans = QListWidget(), QListWidget(), QListWidget()
+    allies.setObjectName("allied-picks")
+    enemies.setObjectName("enemy-picks")
+    bans.setObjectName("banned-heroes")
     for label, widget in (("Allied Picks", allies), ("Enemy Picks", enemies), ("Bans", bans)):
         column = QVBoxLayout()
         column.addWidget(QLabel(label))
         column.addWidget(widget)
         lists.addLayout(column)
     layout.addLayout(lists)
+    composition_panel = QTextEdit()
+    composition_panel.setObjectName("composition-context")
+    composition_panel.setReadOnly(True)
+    composition_panel.setPlainText(
+        "Manual draft context — not statistical lane-fit; not auto-detected.\n"
+        "No allied picks have been added."
+    )
+    composition_controls = QHBoxLayout()
+    team_position_input = QComboBox()
+    team_position_input.setObjectName("ally-team-position")
+    for label, position_value in (
+        ("Unknown position", TeamPosition.UNKNOWN),
+        ("Position 1", TeamPosition.POSITION_1),
+        ("Position 2", TeamPosition.POSITION_2),
+        ("Position 3", TeamPosition.POSITION_3),
+        ("Position 4", TeamPosition.POSITION_4),
+        ("Position 5", TeamPosition.POSITION_5),
+    ):
+        team_position_input.addItem(label, position_value)
+    planned_lane_input = QComboBox()
+    planned_lane_input.setObjectName("ally-planned-lane")
+    for label, lane_value in (
+        ("Unknown lane", PlannedLane.UNKNOWN),
+        ("Safe lane", PlannedLane.SAFE),
+        ("Off lane", PlannedLane.OFF),
+        ("Mid lane", PlannedLane.MID),
+        ("Roam", PlannedLane.ROAM),
+    ):
+        planned_lane_input.addItem(label, lane_value)
+    save_composition = QPushButton("Save Ally Context")
+    save_composition.setObjectName("save-ally-composition")
+    composition_controls.addWidget(team_position_input)
+    composition_controls.addWidget(planned_lane_input)
+    composition_controls.addWidget(save_composition)
+    layout.addWidget(composition_panel)
+    layout.addLayout(composition_controls)
     search = QLineEdit()
     search.setPlaceholderText("Hero search")
     layout.addWidget(search)
@@ -204,6 +246,60 @@ def create_main_window(
         overlay_synergies: tuple[SynergyEvidence, ...] = ()
         latest_pair_result: PairEvidenceResult | None = None
         pair_state = PairRefreshState.IDLE
+
+        def update_composition_context() -> None:
+            assignments = session.to_draft_state().allied_picks
+            lines = [
+                "Manual draft context — not statistical lane-fit; not auto-detected.",
+                "Source: manual input only.",
+            ]
+            if not assignments:
+                lines.append("No allied picks have been added.")
+            else:
+                positions: dict[TeamPosition, list[str]] = {}
+                for pick in assignments:
+                    name = pick.hero.localized_name or pick.hero.canonical_name
+                    position = pick.team_position.name.replace("POSITION_", "P")
+                    lane = pick.planned_lane.value.title()
+                    lines.append(f"{name}: {position}, {lane} (manual)")
+                    if pick.team_position is not TeamPosition.UNKNOWN:
+                        positions.setdefault(pick.team_position, []).append(name)
+                conflicts = [
+                    f"Conflict: {position.name.replace('POSITION_', 'P')} assigned to "
+                    f"{', '.join(names)}."
+                    for position, names in positions.items()
+                    if len(names) > 1
+                ]
+                lines.extend(conflicts or ["No position conflicts among manually assigned allies."])
+            composition_panel.setPlainText("\n".join(lines))
+
+        def selected_allied_hero() -> Hero | None:
+            return selected_list_hero(allies)
+
+        def sync_composition_controls() -> None:
+            hero = selected_allied_hero()
+            save_composition.setEnabled(hero is not None)
+            if hero is None:
+                return
+            position, planned_lane = session.ally_assignments.get(
+                hero, (TeamPosition.UNKNOWN, PlannedLane.UNKNOWN)
+            )
+            team_position_input.setCurrentIndex(team_position_input.findData(position))
+            planned_lane_input.setCurrentIndex(planned_lane_input.findData(planned_lane))
+
+        def save_ally_composition() -> None:
+            hero = selected_allied_hero()
+            if hero is None:
+                composition_panel.setPlainText(
+                    "Manual draft context — select a current allied pick before saving.\n"
+                    "Not statistical lane-fit; not auto-detected."
+                )
+                return
+            position = TeamPosition(str(team_position_input.currentData()))
+            planned_lane = PlannedLane(str(planned_lane_input.currentData()))
+            session.set_ally_assignment(hero, position, planned_lane)
+            update_composition_context()
+            sync_composition_controls()
 
         def selected_candidate_row() -> CandidateRow | None:
             row = candidates.currentRow()
@@ -373,6 +469,8 @@ def create_main_window(
                     item = QListWidgetItem(hero.localized_name or hero.canonical_name)
                     item.setData(Qt.UserRole, hero.hero_id)
                     widget.addItem(item)
+            update_composition_context()
+            sync_composition_controls()
             bundle = evidence_by_role.for_role(session.role)
             evidence_label.setText(
                 bundle.error
@@ -540,12 +638,14 @@ def create_main_window(
 
         reset.clicked.connect(reset_draft)
         manual_refresh.clicked.connect(trigger_manual_pair_refresh)
+        save_composition.clicked.connect(save_ally_composition)
         configure_player.clicked.connect(save_player_account)
         clear_player.clicked.connect(clear_player_account)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
         five.toggled.connect(lambda checked: choose_role(Role.POSITION_5, checked))
         search.textChanged.connect(lambda _: refresh())
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
+        allies.itemSelectionChanged.connect(sync_composition_controls)
         if player_preferences is None:
             player_account_input.setEnabled(False)
             configure_player.setEnabled(False)
@@ -570,6 +670,9 @@ def create_main_window(
             unban,
             reset,
             manual_refresh,
+            team_position_input,
+            planned_lane_input,
+            save_composition,
             player_account_input,
             configure_player,
             clear_player,

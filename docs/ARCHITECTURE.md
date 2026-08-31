@@ -20,6 +20,8 @@ DOTA-007 adds one user-triggered `refresh_now` entry to the same controller. It 
 
 DOTA-008's selected-candidate explanation panel consumes the already rendered local `CandidateRow`. It retains a candidate selection across a local rerender only when that hero remains legal and visible; otherwise it shows an explicit empty state. It has no provider or controller dependency: table selection, search, role changes, pair-result overlays, and reset only rerender local presentation data.
 
+DOTA-013 stores manual ally team-position and planned-lane values in `ManualDraftSession` and immutable `DraftState` only. They are not part of `PairEvidenceContext`, so assignment edits do not create a worker, alter the current-week pair query, or invalidate its bounded request/cache contract. The composition panel renders local manual/Unknown/conflict context; it is not a statistical lane-fit or auto-detection feature.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

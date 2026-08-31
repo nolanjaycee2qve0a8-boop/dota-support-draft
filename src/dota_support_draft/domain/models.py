@@ -24,6 +24,27 @@ class LaneRelation(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class TeamPosition(StrEnum):
+    """A manual team position, distinct from the candidate's P4/P5 Role."""
+
+    UNKNOWN = "UNKNOWN"
+    POSITION_1 = "POSITION_1"
+    POSITION_2 = "POSITION_2"
+    POSITION_3 = "POSITION_3"
+    POSITION_4 = "POSITION_4"
+    POSITION_5 = "POSITION_5"
+
+
+class PlannedLane(StrEnum):
+    """A manual lane plan, never an inferred or observed lane result."""
+
+    UNKNOWN = "UNKNOWN"
+    SAFE = "SAFE"
+    OFF = "OFF"
+    MID = "MID"
+    ROAM = "ROAM"
+
+
 @dataclass(frozen=True, slots=True)
 class Hero:
     hero_id: int
@@ -114,6 +135,8 @@ class HeroPick:
     side: TeamSide
     player_role: Role | None = None
     lane_relation: LaneRelation | None = None
+    team_position: TeamPosition = TeamPosition.UNKNOWN
+    planned_lane: PlannedLane = PlannedLane.UNKNOWN
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +156,12 @@ class DraftState:
             raise ValueError("Allied picks must have ALLY side")
         if any(pick.side is not TeamSide.ENEMY for pick in self.enemy_picks):
             raise ValueError("Enemy picks must have ENEMY side")
+        if any(
+            pick.team_position is not TeamPosition.UNKNOWN
+            or pick.planned_lane is not PlannedLane.UNKNOWN
+            for pick in self.enemy_picks
+        ):
+            raise ValueError("Only allied picks may have manual composition assignments")
         allied_ids = {pick.hero.hero_id for pick in self.allied_picks}
         enemy_ids = {pick.hero.hero_id for pick in self.enemy_picks}
         if allied_ids & enemy_ids:

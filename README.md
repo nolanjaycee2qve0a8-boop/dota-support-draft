@@ -22,6 +22,8 @@ DOTA-008 adds a read-only selected-candidate explanation panel. It presents the 
 
 DOTA-011 adds a `Configure Player` entry for a public numeric Steam32/OpenDota account ID. The ID is stored only in current-user Windows QSettings, outside the repository, and is read by bootstrap only after the next app restart. Personal history remains all-time and role-unknown. `DOTA_SUPPORT_ACCOUNT_ID` remains a higher-priority development/CI override. This setting does not store Tokens, cookies, or Steam credentials.
 
+DOTA-013 adds manual context for each allied hero's team position and planned lane. It is an explicit draft note, defaults to Unknown, is not persistent, and is displayed as neither statistical lane-fit nor auto-detected data. It does not alter scores, providers, pair refresh requests, or cache behavior.
+
 ## Windows local Token launch
 
 From the project root, run:

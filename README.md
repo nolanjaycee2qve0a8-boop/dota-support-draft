@@ -20,6 +20,17 @@ DOTA-007 adds `Refresh pair evidence` for the current draft context. It explicit
 
 DOTA-008 adds a read-only selected-candidate explanation panel. It presents the complete local Meta, Counter, Synergy, Personal, confidence, and Why evidence for the current P4/P5 context. Selecting or searching candidates does not request data; the panel explains already calculated experimental ordering evidence, not a win prediction.
 
+## Windows local Token launch
+
+From the project root, run:
+
+```powershell
+cd 'C:\Users\22908\Documents\ChatGPT\野生dota+\dota-support-draft'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_dota_support_draft.ps1
+```
+
+The `Bypass` option applies only to this launch process; it does not change your computer's execution policy. When the local terminal prompts, paste the Token into its hidden input. Never paste it into chat or commit it to the repository. The existing `python -m dota_support_draft` command remains available for development without this launcher.
+
 ## Run
 
 Install Python 3.11+ dependencies, then run from this directory:

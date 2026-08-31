@@ -528,6 +528,51 @@ def test_manual_clicks_keep_only_latest_pending_and_close_drops_it() -> None:
     assert len(service.inputs) == 3 and not manual.isEnabled()
 
 
+def test_close_drops_manual_pending_behind_active_pair_worker() -> None:
+    """A deferred close retires, rather than dispatches, a manual pending refresh."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 3))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = RecordingSlowPairService(delay=0.3)
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    assert table is not None and manual is not None and window.pair_refresh_controller is not None
+    controller = window.pair_refresh_controller
+
+    table.selectRow(0)
+    _button(window, "Add Enemy").click()
+    _wait(app, lambda: len(service.inputs) == 1 and controller.active_thread is not None)
+
+    manual.click()
+    app.processEvents()
+    assert len(service.inputs) == 1
+    assert controller.active_thread is not None
+
+    window.close()
+    assert window.isVisible()
+    _wait(
+        app,
+        lambda: (
+            not window.isVisible()
+            and controller.active_thread is None
+            and controller.retired_worker_count == 0
+        ),
+        seconds=3.0,
+    )
+    app.processEvents()
+
+    assert len(service.inputs) == 1
+    assert service.inputs[0].context.enemy_ids == (1,)
+    assert controller.findChildren(QThread) == []
+
+
 def test_manual_refresh_is_disabled_without_related_picks_or_shortlist() -> None:
     app = QApplication.instance() or QApplication([])
     heroes = (Hero(1, "hero_one"), Hero(2, "hero_two"))

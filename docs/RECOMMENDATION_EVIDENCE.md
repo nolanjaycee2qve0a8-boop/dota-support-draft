@@ -37,3 +37,5 @@ Pair work is debounced for 250 ms and latest-state-wins. An in-flight urllib cal
 ## Pair refresh observability
 
 The desktop UI shows the current semantic pair context locally: P4/P5 role, allied and enemy pick counts, and the deterministic ordered shortlist (at most eight heroes). It also distinguishes Counter and Synergy as available, pending, not requested, or unavailable with the reported component error. With no related picks, or while a component is missing, the UI explicitly identifies Meta/Personal-only presentation rather than treating missing pair evidence as zero. Search and candidate-table selection do not alter this context or start pair transport work.
+
+`Refresh pair evidence` is an explicit retry/recalculation for that same current semantic context. It is disabled without a legal shortlist or related pick, uses the normal provider cache path, and does not claim to force a new HTTP transport request. When work is already active, repeated clicks replace only the latest pending snapshot; they never create a second active worker.

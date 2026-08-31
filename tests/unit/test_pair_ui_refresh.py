@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QTableWidget,
+    QTextEdit,
 )
 
 from dota_support_draft.domain import (
@@ -103,6 +104,12 @@ def _label(window, object_name: str) -> QLabel:
     label = window.findChild(QLabel, object_name)
     assert label is not None
     return label
+
+
+def _explanation(window) -> QTextEdit:
+    panel = window.findChild(QTextEdit, "recommendation-explanation")
+    assert panel is not None
+    return panel
 
 
 def _wait(app: QApplication, predicate, seconds: float = 2) -> None:
@@ -571,6 +578,99 @@ def test_close_drops_manual_pending_behind_active_pair_worker() -> None:
     assert len(service.inputs) == 1
     assert service.inputs[0].context.enemy_ids == (1,)
     assert controller.findChildren(QThread) == []
+
+
+def test_recommendation_explanation_tracks_selection_and_search_without_pair_network() -> None:
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    search = window.findChild(QLineEdit)
+    panel = _explanation(window)
+    assert table is not None and search is not None and panel.isReadOnly()
+    assert panel.toPlainText() == "Select a candidate hero to inspect its evidence."
+
+    table.selectRow(0)
+    assert "Candidate: Hero 1" in panel.toPlainText()
+    assert "Experimental score:" in panel.toPlainText()
+    assert "Why:" in panel.toPlainText()
+    assert "Personal: unavailable — fixed weight contributes neutral zero" in panel.toPlainText()
+
+    search.setText("Hero 2")
+    app.processEvents()
+    assert "Candidate: Hero 2" in panel.toPlainText()
+    assert service.calls == 0
+    window.close()
+
+
+def test_recommendation_explanation_uses_current_role_and_discards_pair_error_on_reset() -> None:
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    provenance = DataProvenance(
+        "fixture", datetime.now(UTC), "fixture", patch.version, data_kind="TEST/FIXTURE"
+    )
+    position_four = RoleEvidenceBundle(
+        Role.POSITION_4,
+        EvidenceSet(
+            role_meta=tuple(
+                RoleMetaEvidence(hero, Role.POSITION_4, patch, 100, 60, 0.6, provenance)
+                for hero in heroes
+            )
+        ),
+    )
+    position_five = RoleEvidenceBundle(
+        Role.POSITION_5,
+        EvidenceSet(
+            role_meta=tuple(
+                RoleMetaEvidence(hero, Role.POSITION_5, patch, 100, 70, 0.7, provenance)
+                for hero in heroes
+            )
+        ),
+    )
+    service = ComponentPairService(counter_error="counter offline")
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=RoleEvidenceBundles(position_four, position_five),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    assert table is not None
+    table.selectRow(0)
+    panel = _explanation(window)
+    assert "Role: Position 4" in panel.toPlainText()
+    assert "Meta: 5%" in panel.toPlainText()
+
+    radios = {radio.text(): radio for radio in window.findChildren(QRadioButton)}
+    radios["Position 5"].click()
+    assert "Role: Position 5" in panel.toPlainText()
+    assert "Meta: 10%" in panel.toPlainText()
+
+    table.selectRow(0)
+    _button(window, "Add Enemy").click()
+    _wait(
+        app,
+        lambda: "Counter: unavailable (counter offline)" in _explanation(window).toPlainText(),
+    )
+    assert "Counter: unavailable — fixed weight contributes neutral zero" in panel.toPlainText()
+    assert "Why:" in panel.toPlainText()
+
+    _button(window, "Reset Draft").click()
+    app.processEvents()
+    assert "Pair coverage: no related picks" in panel.toPlainText()
+    assert "counter offline" not in panel.toPlainText()
+    assert "Counter: unavailable — fixed weight contributes neutral zero" in panel.toPlainText()
+    window.close()
 
 
 def test_manual_refresh_is_disabled_without_related_picks_or_shortlist() -> None:

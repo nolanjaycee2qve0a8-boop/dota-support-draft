@@ -18,6 +18,8 @@ DOTA-006 makes the existing pair-refresh boundary observable: the UI shows the c
 
 DOTA-007 adds `Refresh pair evidence` for the current draft context. It explicitly retries/recalculates current pair evidence through the existing asynchronous boundary; it does not purge provider caches or promise a new external HTTP request. The action is unavailable until the draft has a legal shortlist and at least one allied or enemy pick.
 
+DOTA-008 adds a read-only selected-candidate explanation panel. It presents the complete local Meta, Counter, Synergy, Personal, confidence, and Why evidence for the current P4/P5 context. Selecting or searching candidates does not request data; the panel explains already calculated experimental ordering evidence, not a win prediction.
+
 ## Run
 
 Install Python 3.11+ dependencies, then run from this directory:

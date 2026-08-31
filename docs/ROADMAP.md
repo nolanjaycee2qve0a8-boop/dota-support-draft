@@ -1,13 +1,13 @@
 # Roadmap
 
-DOTA-005 is closed.
+DOTA-005 through DOTA-009 are closed.
 
-DOTA-006 is only a candidate, not started work. A future task may consider user-visible shortlist/refresh state and manual refresh behavior, but this document does not approve or freeze that scope.
+DOTA-006 closed the observable pair-refresh context and Qt retirement work. DOTA-007 closed manual pair refresh. DOTA-008 closed the selected recommendation explanation panel. DOTA-009 closed the local Windows Token launcher.
 
 Possible future directions include:
 
 - team-composition and lane-fit evidence;
-- clearer recommendation explanations;
+- further recommendation explanation improvements beyond the completed selected-candidate panel;
 - legal adapters that produce `DraftState`;
 - Windows packaging.
 

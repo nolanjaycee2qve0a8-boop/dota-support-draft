@@ -451,3 +451,118 @@ def test_reset_then_close_during_active_pair_work_retires_without_restarting() -
         and controller.findChildren(QThread) == []
         and controller.retired_worker_cleanup_thread == app.thread()
     )
+
+
+def test_manual_refresh_immediately_dispatches_current_context() -> None:
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 5))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = RecordingSlowPairService(0.02)
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=1000,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    assert table is not None and manual is not None and not manual.isEnabled()
+    table.selectRow(0)
+    _button(window, "Add Enemy").click()
+    assert manual.isEnabled() and service.calls == 0
+    manual.click()
+    _wait(app, lambda: len(service.inputs) == 1, seconds=0.4)
+    _wait(
+        app,
+        lambda: (
+            _label(window, "pair-refresh-status").text() == "Manual pair refresh complete: Counter"
+        ),
+    )
+    assert len(service.inputs[0].context.enemy_ids) == 1
+    window.close()
+
+
+def test_manual_clicks_keep_only_latest_pending_and_close_drops_it() -> None:
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 5))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = RecordingSlowPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    assert table is not None and manual is not None and window.pair_refresh_controller is not None
+    controller = window.pair_refresh_controller
+    table.selectRow(0)
+    _button(window, "Add Enemy").click()
+    _wait(app, lambda: len(service.inputs) == 1)
+    for _ in range(3):
+        manual.click()
+    _wait(
+        app,
+        lambda: (
+            len(service.inputs) == 2
+            and controller.active_thread is None
+            and controller.retired_worker_count == 0
+        ),
+    )
+    assert [input_data.generation for input_data in service.inputs] == [1, 4]
+    assert _label(window, "pair-refresh-status").text() == ("Manual pair refresh complete: Counter")
+
+    manual.click()
+    window.close()
+    _wait(
+        app,
+        lambda: (
+            not window.isVisible()
+            and controller.active_thread is None
+            and controller.retired_worker_count == 0
+        ),
+    )
+    assert len(service.inputs) == 3 and not manual.isEnabled()
+
+
+def test_manual_refresh_is_disabled_without_related_picks_or_shortlist() -> None:
+    app = QApplication.instance() or QApplication([])
+    heroes = (Hero(1, "hero_one"), Hero(2, "hero_two"))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    no_related = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    no_related.show()
+    button = no_related.findChild(QPushButton, "manual-pair-refresh")
+    assert button is not None and not button.isEnabled()
+    button.click()
+    app.processEvents()
+    assert service.calls == 0
+    no_related.close()
+
+    no_shortlist = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=RoleEvidenceBundles(
+            RoleEvidenceBundle(Role.POSITION_4), RoleEvidenceBundle(Role.POSITION_5)
+        ),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=1000,
+    )
+    no_shortlist.show()
+    table = no_shortlist.findChild(QTableWidget)
+    button = no_shortlist.findChild(QPushButton, "manual-pair-refresh")
+    assert table is not None and button is not None
+    table.selectRow(0)
+    _button(no_shortlist, "Add Enemy").click()
+    assert not button.isEnabled()
+    button.click()
+    app.processEvents()
+    assert service.calls == 0
+    no_shortlist.close()

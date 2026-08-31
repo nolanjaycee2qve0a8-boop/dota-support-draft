@@ -139,7 +139,18 @@ def create_main_window(
         QPushButton("Unban"),
         QPushButton("Reset Draft"),
     )
-    for button in (add_ally, add_enemy, ban, remove_ally, remove_enemy, unban, reset):
+    manual_refresh = QPushButton("Refresh pair evidence")
+    manual_refresh.setObjectName("manual-pair-refresh")
+    for button in (
+        add_ally,
+        add_enemy,
+        ban,
+        remove_ally,
+        remove_enemy,
+        unban,
+        reset,
+        manual_refresh,
+    ):
         controls.addWidget(button)
     layout.addLayout(controls)
     layout.addWidget(QLabel("Personal history is ALL-TIME; ROLE UNKNOWN."))
@@ -244,6 +255,28 @@ def create_main_window(
                 + ". Meta/Personal remain available without pair enrichment."
             )
 
+        def update_manual_refresh_control() -> None:
+            controller = window.pair_refresh_controller
+            input_data = pair_input()
+            if controller is None or pair_service is None:
+                manual_refresh.setEnabled(False)
+                manual_refresh.setToolTip("Pair evidence is unavailable")
+            elif controller.shutting_down:
+                manual_refresh.setEnabled(False)
+                manual_refresh.setToolTip("Pair refresh is unavailable while closing")
+            elif not input_data.shortlist:
+                manual_refresh.setEnabled(False)
+                manual_refresh.setToolTip("No legal pair shortlist for this draft")
+            elif not (input_data.context.ally_ids or input_data.context.enemy_ids):
+                manual_refresh.setEnabled(False)
+                manual_refresh.setToolTip("Add an ally or enemy pick to refresh pair evidence")
+            else:
+                manual_refresh.setEnabled(True)
+                manual_refresh.setToolTip(
+                    "Recalculate current pair evidence using existing provider caches "
+                    "when available"
+                )
+
         def refresh() -> None:
             allies.clear()
             enemies.clear()
@@ -266,6 +299,7 @@ def create_main_window(
                 )
             )
             describe_pair_observability()
+            update_manual_refresh_control()
             recommendations = scorer.rank(
                 session.to_draft_state(), session.candidates, effective_evidence(), personal_stats
             )
@@ -308,6 +342,7 @@ def create_main_window(
             }
             pair_label.setText(message or labels[state])
             describe_pair_observability()
+            update_manual_refresh_control()
 
         def apply_pair_result(result: PairEvidenceResult) -> None:
             nonlocal latest_pair_result, overlay_context, overlay_counters, overlay_synergies
@@ -326,10 +361,15 @@ def create_main_window(
                 window,
             )
             pair_label.setText("Pair evidence: top 8 preliminary candidates")
+            update_manual_refresh_control()
 
         def trigger_pair_refresh() -> None:
             if window.pair_refresh_controller is not None:
                 window.pair_refresh_controller.schedule(pair_input())
+
+        def trigger_manual_pair_refresh() -> None:
+            if window.pair_refresh_controller is not None:
+                window.pair_refresh_controller.refresh_now(pair_input())
 
         def chosen() -> Hero | None:
             row = candidates.currentRow()
@@ -379,6 +419,7 @@ def create_main_window(
                 trigger_pair_refresh()
 
         reset.clicked.connect(reset_draft)
+        manual_refresh.clicked.connect(trigger_manual_pair_refresh)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
         five.toggled.connect(lambda checked: choose_role(Role.POSITION_5, checked))
         search.textChanged.connect(lambda _: refresh())
@@ -394,6 +435,7 @@ def create_main_window(
             remove_enemy,
             unban,
             reset,
+            manual_refresh,
             search,
             candidates,
         ):

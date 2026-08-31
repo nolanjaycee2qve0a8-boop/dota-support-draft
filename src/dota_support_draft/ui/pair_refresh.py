@@ -97,6 +97,7 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         self._retired_worker_records: dict[int, RetiredWorkerRecord] = {}
         self._retired_worker_cleanup_thread: QThread | None = None
         self._next_retired_worker_token = 0
+        self._manual_generation: int | None = None
         self._shutting_down = False
         self._shutdown_complete: Callable[[], None] | None = None
         self._timer = QTimer(self)
@@ -127,14 +128,8 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
     def schedule(self, input_data: PairEvidenceInput) -> None:
         if self._shutting_down:
             return
-        self._generation += 1
-        input_data = PairEvidenceInput(
-            self._generation,
-            input_data.context,
-            input_data.draft,
-            input_data.shortlist,
-            input_data.rank_bracket,
-        )
+        self._manual_generation = None
+        input_data = self._next_generation_input(input_data)
         if not input_data.context.ally_ids and not input_data.context.enemy_ids:
             self._pending = None
             self._timer.stop()
@@ -144,13 +139,58 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         self._set_state(PairRefreshState.DEBOUNCING, None)
         self._timer.start()
 
+    def refresh_now(self, input_data: PairEvidenceInput) -> bool:
+        """Immediately enqueue one explicit current-context retry without bypassing caches."""
+        if self._shutting_down:
+            return False
+        input_data = self._next_generation_input(input_data)
+        if not input_data.context.ally_ids and not input_data.context.enemy_ids:
+            self._pending = None
+            self._timer.stop()
+            self._set_state(
+                PairRefreshState.IDLE,
+                "Manual pair refresh unavailable: add an ally or enemy pick",
+            )
+            return False
+        if not input_data.shortlist:
+            self._pending = None
+            self._timer.stop()
+            self._set_state(
+                PairRefreshState.IDLE,
+                "Manual pair refresh unavailable: no legal shortlist",
+            )
+            return False
+        self._pending = input_data
+        self._manual_generation = input_data.generation
+        self._timer.stop()
+        if self._active is not None:
+            self._set_state(PairRefreshState.DEBOUNCING, "Manual pair refresh queued…")
+            return True
+        self._dispatch_latest()
+        return True
+
+    def _next_generation_input(self, input_data: PairEvidenceInput) -> PairEvidenceInput:
+        self._generation += 1
+        return PairEvidenceInput(
+            self._generation,
+            input_data.context,
+            input_data.draft,
+            input_data.shortlist,
+            input_data.rank_bracket,
+        )
+
     @Slot()  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
     def _dispatch_latest(self) -> None:
         if self._shutting_down or self._active is not None or self._pending is None:
             return
         input_data, self._pending = self._pending, None
         self._active = input_data
-        self._set_state(PairRefreshState.LOADING, None)
+        self._set_state(
+            PairRefreshState.LOADING,
+            "Manual pair refresh in progress…"
+            if input_data.generation == self._manual_generation
+            else None,
+        )
         thread = QThread(self)
         worker = PairEvidenceWorker(self._service, input_data)
         self._thread, self._worker = thread, worker
@@ -175,16 +215,32 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
     def _on_completed(self, result: object) -> None:
         pair_result = result if isinstance(result, PairEvidenceResult) else None
         if pair_result is not None and self._is_current(pair_result):
+            manual = pair_result.generation == self._manual_generation
             self._apply_result(pair_result)
             if pair_result.counter_error and pair_result.synergy_error:
                 self._set_state(
                     PairRefreshState.ERROR,
-                    "Pair evidence unavailable; current-week Meta remains active",
+                    "Manual pair refresh unavailable; current-week Meta remains active"
+                    if manual
+                    else "Pair evidence unavailable; current-week Meta remains active",
                 )
             elif pair_result.counter_error or pair_result.synergy_error:
-                self._set_state(PairRefreshState.PARTIAL, "Pair evidence partial")
+                self._set_state(
+                    PairRefreshState.PARTIAL,
+                    "Manual pair refresh partial" if manual else "Pair evidence partial",
+                )
             else:
-                self._set_state(PairRefreshState.READY, None)
+                self._set_state(
+                    PairRefreshState.READY,
+                    (
+                        "Manual pair refresh complete: "
+                        f"{self._requested_components(pair_result.context)}"
+                    )
+                    if manual
+                    else None,
+                )
+            if manual:
+                self._manual_generation = None
 
     @Slot(str)  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
     def _on_failed(self, message: str) -> None:
@@ -193,7 +249,13 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
             and self._active is not None
             and self._active.generation == self._generation
         ):
-            self._set_state(PairRefreshState.ERROR, f"Pair evidence unavailable: {message}")
+            manual = self._active.generation == self._manual_generation
+            self._set_state(
+                PairRefreshState.ERROR,
+                f"{'Manual pair refresh' if manual else 'Pair evidence'} unavailable: {message}",
+            )
+            if manual:
+                self._manual_generation = None
 
     @Slot()  # type: ignore[untyped-decorator]  # PySide6 Slot lacks typed decorator metadata.
     def _on_thread_finished(self) -> None:
@@ -216,6 +278,15 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
         if record is not None:
             record.deleteLater()
 
+    @staticmethod
+    def _requested_components(context: PairEvidenceContext) -> str:
+        components = []
+        if context.enemy_ids:
+            components.append("Counter")
+        if context.ally_ids:
+            components.append("Synergy")
+        return " + ".join(components)
+
     def _is_current(self, result: PairEvidenceResult) -> bool:
         return (
             not self._shutting_down
@@ -231,6 +302,7 @@ class PairEvidenceRefreshController(QObject):  # type: ignore[misc]  # PySide6 Q
             return self._active is not None
         self._shutting_down = True
         self._generation += 1
+        self._manual_generation = None
         self._pending = None
         self._timer.stop()
         self._shutdown_complete = on_complete

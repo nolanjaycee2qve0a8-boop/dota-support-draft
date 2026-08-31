@@ -16,6 +16,8 @@ DOTA-005 implements that boundary as `DraftMainWindow → PairEvidenceRefreshCon
 
 DOTA-006 renders that existing semantic context locally in the window: current P4/P5 role, allied/enemy counts, the deterministic pair shortlist, and explicit Counter/Synergy availability. The rendered context is derived from the same current `PairEvidenceInput`; it does not schedule work, fetch data, or preserve a stale overlay after a draft change.
 
+DOTA-007 adds one user-triggered `refresh_now` entry to the same controller. It assigns a new generation to the current `PairEvidenceInput`, dispatches immediately only when no worker is active, and otherwise replaces the single pending snapshot. It neither bypasses provider caches nor creates a parallel worker; shutdown clears this manual pending work together with ordinary pending work.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

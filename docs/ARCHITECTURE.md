@@ -22,6 +22,8 @@ DOTA-008's selected-candidate explanation panel consumes the already rendered lo
 
 DOTA-013 stores manual ally team-position and planned-lane values in `ManualDraftSession` and immutable `DraftState` only. They are not part of `PairEvidenceContext`, so assignment edits do not create a worker, alter the current-week pair query, or invalidate its bounded request/cache contract. The composition panel renders local manual/Unknown/conflict context; it is not a statistical lane-fit or auto-detection feature.
 
+DOTA-014 keeps manual draft actions at the same local boundary. The UI derives ally/enemy capacity and the unrestricted ban count from `ManualDraftSession`, and exposes a separate recoverable-action status without replacing bootstrap, player, or pair diagnostics. Only a successful `ManualDraftSession` mutation rerenders and calls the pair controller; disabled, unselected, capacity-full, or validation-failed actions do not create a worker or provider request.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

@@ -711,3 +711,119 @@ def test_manual_refresh_is_disabled_without_related_picks_or_shortlist() -> None
     app.processEvents()
     assert service.calls == 0
     no_shortlist.close()
+
+
+def test_draft_action_guardrails_show_capacity_and_keep_invalid_clicks_local() -> None:
+    """Disabled or invalid draft actions never advance the pair-refresh controller."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 8))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=10_000,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    status = _label(window, "draft-action-status")
+    add_ally = window.findChild(QPushButton, "add-ally")
+    remove_ally = window.findChild(QPushButton, "remove-ally")
+    reset = window.findChild(QPushButton, "reset-draft")
+    assert (
+        table is not None and add_ally is not None and remove_ally is not None and reset is not None
+    )
+    assert "allies 0 / 5 | enemies 0 / 5 | bans 0" in status.text()
+    assert not add_ally.isEnabled() and not remove_ally.isEnabled() and not reset.isEnabled()
+    add_ally.click()
+    remove_ally.click()
+    reset.click()
+    app.processEvents()
+    assert service.calls == 0
+
+    for _ in range(5):
+        table.selectRow(0)
+        assert add_ally.isEnabled()
+        add_ally.click()
+
+    controller = window.pair_refresh_controller
+    assert controller is not None
+    generation_after_valid_adds = controller.generation
+    assert not add_ally.isEnabled()
+    assert "allies 5 / 5" in status.text()
+    assert "capacity is full" in status.text()
+    add_ally.click()
+    remove_ally.click()
+    app.processEvents()
+    assert service.calls == 0
+    assert controller.generation == generation_after_valid_adds
+    assert controller.active_thread is None and controller.findChildren(QThread) == []
+    window.close()
+
+
+def test_bans_over_five_remain_legal_and_do_not_create_pair_work() -> None:
+    """The guardrail reports ban count without imposing an unapproved draft cap."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 8))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    ban = window.findChild(QPushButton, "ban-hero")
+    status = _label(window, "draft-action-status")
+    assert table is not None and ban is not None
+    for _ in range(6):
+        table.selectRow(0)
+        assert ban.isEnabled()
+        ban.click()
+    controller = window.pair_refresh_controller
+    assert controller is not None
+    app.processEvents()
+    assert "bans 6" in status.text()
+    assert service.calls == 0
+    assert controller.active_thread is None and controller.findChildren(QThread) == []
+    window.close()
+
+
+def test_only_a_successful_draft_mutation_schedules_pair_refresh() -> None:
+    """A valid add schedules once; unselected actions do not create another worker."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    add_ally = window.findChild(QPushButton, "add-ally")
+    remove_ally = window.findChild(QPushButton, "remove-ally")
+    assert table is not None and add_ally is not None and remove_ally is not None
+    table.selectRow(0)
+    add_ally.click()
+    _wait(app, lambda: service.calls == 1)
+    controller = window.pair_refresh_controller
+    assert controller is not None
+    _wait(app, lambda: controller.active_thread is None)
+    generation_after_add = controller.generation
+
+    table.clearSelection()
+    app.processEvents()
+    assert not add_ally.isEnabled() and not remove_ally.isEnabled()
+    add_ally.click()
+    remove_ally.click()
+    app.processEvents()
+    assert service.calls == 1
+    assert controller.generation == generation_after_add
+    assert controller.active_thread is None and controller.findChildren(QThread) == []
+    window.close()

@@ -24,6 +24,8 @@ DOTA-011 adds a `Configure Player` entry for a public numeric Steam32/OpenDota a
 
 DOTA-013 adds manual context for each allied hero's team position and planned lane. It is an explicit draft note, defaults to Unknown, is not persistent, and is displayed as neither statistical lane-fit nor auto-detected data. It does not alter scores, providers, pair refresh requests, or cache behavior.
 
+DOTA-014 adds manual-draft action guardrails: a local status display shows the five-slot ally/enemy limits, the current unrestricted ban count, and the next recoverable action. Disabled or invalid add/remove/reset interactions leave the draft unchanged and do not schedule pair evidence work. Valid draft mutations retain the existing asynchronous refresh behavior.
+
 ## Windows local Token launch
 
 From the project root, run:

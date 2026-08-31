@@ -194,6 +194,9 @@ def create_main_window(
     player_config.addWidget(clear_player)
     layout.addWidget(player_config_status)
     layout.addLayout(player_config)
+    draft_action_status = QLabel("Draft actions: allies 0 / 5 | enemies 0 / 5 | bans 0")
+    draft_action_status.setObjectName("draft-action-status")
+    layout.addWidget(draft_action_status)
     controls = QHBoxLayout()
     add_ally, add_enemy, ban = QPushButton("Add Ally"), QPushButton("Add Enemy"), QPushButton("Ban")
     remove_ally, remove_enemy, unban, reset = (
@@ -204,6 +207,16 @@ def create_main_window(
     )
     manual_refresh = QPushButton("Refresh pair evidence")
     manual_refresh.setObjectName("manual-pair-refresh")
+    for button, object_name in (
+        (add_ally, "add-ally"),
+        (add_enemy, "add-enemy"),
+        (ban, "ban-hero"),
+        (remove_ally, "remove-ally"),
+        (remove_enemy, "remove-enemy"),
+        (unban, "unban-hero"),
+        (reset, "reset-draft"),
+    ):
+        button.setObjectName(object_name)
     for button in (
         add_ally,
         add_enemy,
@@ -513,6 +526,7 @@ def create_main_window(
             else:
                 candidates.setCurrentCell(selected_index, 0)
             update_recommendation_explanation()
+            update_draft_action_controls()
 
         def set_pair_state(state: PairRefreshState, message: str | None) -> None:
             nonlocal pair_state
@@ -590,6 +604,8 @@ def create_main_window(
             )
 
         def chosen() -> Hero | None:
+            if not candidates.selectedItems():
+                return None
             row = selected_candidate_row()
             return row.hero if row is not None else None
 
@@ -597,44 +613,97 @@ def create_main_window(
             item = widget.currentItem()
             return hero_by_id.get(item.data(Qt.UserRole)) if item is not None else None
 
-        def apply(action: Callable[[Hero], None]) -> None:
+        draft_action_hint = "Select a candidate hero to add an ally, enemy, or ban."
+
+        def update_draft_action_controls(message: str | None = None) -> None:
+            nonlocal draft_action_hint
+            if message is not None:
+                draft_action_hint = message
+            hero = chosen()
+            ally_full = len(session.allies) >= 5
+            enemy_full = len(session.enemies) >= 5
+            add_ally.setEnabled(hero is not None and not ally_full)
+            add_enemy.setEnabled(hero is not None and not enemy_full)
+            ban.setEnabled(hero is not None)
+            remove_ally.setEnabled(allies.currentItem() is not None)
+            remove_enemy.setEnabled(enemies.currentItem() is not None)
+            unban.setEnabled(bans.currentItem() is not None)
+            reset.setEnabled(bool(session.allies or session.enemies or session.bans))
+            if ally_full:
+                hint = "Allied pick capacity is full. Remove an allied pick to continue."
+            elif enemy_full:
+                hint = "Enemy pick capacity is full. Remove an enemy pick to continue."
+            elif hero is None:
+                hint = "Select a candidate hero to add an ally, enemy, or ban."
+            else:
+                hint = draft_action_hint
+            draft_action_status.setText(
+                "Draft actions: "
+                f"allies {len(session.allies)} / 5 | enemies {len(session.enemies)} / 5 "
+                f"| bans {len(session.bans)} — {hint}"
+            )
+
+        def apply(action: Callable[[Hero], None], action_name: str) -> None:
             hero = chosen()
             if hero is None:
-                status.setText("Select a candidate hero first.")
-            else:
-                try:
-                    action(hero)
-                except ValueError as error:
-                    status.setText(str(error))
+                update_draft_action_controls("Select a candidate hero first.")
+                return
+            try:
+                action(hero)
+            except ValueError as error:
+                update_draft_action_controls(str(error))
+                return
             refresh()
+            update_draft_action_controls(
+                f"{action_name}: {hero.localized_name or hero.canonical_name}."
+            )
             trigger_pair_refresh()
 
-        def remove_from(widget: QListWidget, action: Callable[[Hero], None]) -> None:
+        def remove_from(
+            widget: QListWidget, action: Callable[[Hero], None], action_name: str
+        ) -> None:
             hero = selected_list_hero(widget)
             if hero is None:
-                status.setText("Select a hero from the list first.")
-            else:
+                update_draft_action_controls("Select a hero from the relevant list first.")
+                return
+            try:
                 action(hero)
+            except ValueError as error:
+                update_draft_action_controls(str(error))
+                return
             refresh()
+            update_draft_action_controls(
+                f"{action_name}: {hero.localized_name or hero.canonical_name}."
+            )
             trigger_pair_refresh()
 
-        add_ally.clicked.connect(lambda: apply(session.add_ally))
-        add_enemy.clicked.connect(lambda: apply(session.add_enemy))
-        ban.clicked.connect(lambda: apply(session.ban))
-        remove_ally.clicked.connect(lambda: remove_from(allies, session.remove_ally))
-        remove_enemy.clicked.connect(lambda: remove_from(enemies, session.remove_enemy))
-        unban.clicked.connect(lambda: remove_from(bans, session.unban))
+        add_ally.clicked.connect(lambda: apply(session.add_ally, "Added allied pick"))
+        add_enemy.clicked.connect(lambda: apply(session.add_enemy, "Added enemy pick"))
+        ban.clicked.connect(lambda: apply(session.ban, "Banned hero"))
+        remove_ally.clicked.connect(
+            lambda: remove_from(allies, session.remove_ally, "Removed allied pick")
+        )
+        remove_enemy.clicked.connect(
+            lambda: remove_from(enemies, session.remove_enemy, "Removed enemy pick")
+        )
+        unban.clicked.connect(lambda: remove_from(bans, session.unban, "Unbanned hero"))
 
         def reset_draft() -> None:
+            if not (session.allies or session.enemies or session.bans):
+                update_draft_action_controls("Draft is already empty.")
+                return
             session.clear()
             refresh()
+            update_draft_action_controls("Draft reset.")
             trigger_pair_refresh()
 
         def choose_role(role: Role, checked: bool) -> None:
-            if checked:
-                session.set_role(role)
-                refresh()
-                trigger_pair_refresh()
+            if not checked or session.role is role:
+                return
+            session.set_role(role)
+            refresh()
+            update_draft_action_controls("Role changed; draft context updated.")
+            trigger_pair_refresh()
 
         reset.clicked.connect(reset_draft)
         manual_refresh.clicked.connect(trigger_manual_pair_refresh)
@@ -646,6 +715,10 @@ def create_main_window(
         search.textChanged.connect(lambda _: refresh())
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
         allies.itemSelectionChanged.connect(sync_composition_controls)
+        candidates.itemSelectionChanged.connect(update_draft_action_controls)
+        allies.itemSelectionChanged.connect(update_draft_action_controls)
+        enemies.itemSelectionChanged.connect(update_draft_action_controls)
+        bans.itemSelectionChanged.connect(update_draft_action_controls)
         if player_preferences is None:
             player_account_input.setEnabled(False)
             configure_player.setEnabled(False)

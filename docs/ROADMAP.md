@@ -6,7 +6,7 @@ DOTA-006 closed the observable pair-refresh context and Qt retirement work. DOTA
 
 Possible future directions include:
 
-- team-composition and lane-fit evidence;
+- team-composition and lane-fit evidence（先参阅 [DOTA-012 研究](DOTA-012_COMPOSITION_LANE_FIT_RESEARCH.md)，尚未批准实施）;
 - further recommendation explanation improvements beyond the completed selected-candidate panel;
 - legal adapters that produce `DraftState`;
 - Windows packaging.

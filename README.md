@@ -34,6 +34,8 @@ DOTA-020 adds local candidate-filter feedback and a one-click search clear actio
 
 DOTA-022 structures the selected-candidate explanation into Candidate, recommendation summary, Evidence, Why/availability, and Context sections. It presents already calculated values only; its experimental ordering score remains an explanation rather than a win prediction, and it never requests new data.
 
+DOTA-027 adds a local candidate-comparison panel. Add up to three current legal candidates to compare their already calculated score, confidence, and Meta/Counter/Synergy/Personal evidence. Adding, removing, clearing, searching, sorting, and selecting candidates are display-only operations: they do not request pair evidence or change recommendations. A compared hero is removed automatically if a draft change makes it illegal; the experimental score remains an ordering explanation, not a win prediction.
+
 ## Windows local Token launch
 
 From the project root, run:

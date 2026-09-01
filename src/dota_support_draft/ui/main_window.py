@@ -272,6 +272,30 @@ def create_main_window(
     explanation_panel.setPlaceholderText("Select a candidate hero to inspect its evidence.")
     explanation_panel.setPlainText("Select a candidate hero to inspect its evidence.")
 
+    comparison_status = QLabel("Comparison: select up to 3 legal candidates to compare locally.")
+    comparison_status.setObjectName("candidate-comparison-status")
+    add_comparison = QPushButton("Add selected to compare")
+    add_comparison.setObjectName("add-candidate-comparison")
+    remove_comparison = QPushButton("Remove selected from compare")
+    remove_comparison.setObjectName("remove-candidate-comparison")
+    clear_comparison_button = QPushButton("Clear comparison")
+    clear_comparison_button.setObjectName("clear-candidate-comparison")
+    comparison_controls = QHBoxLayout()
+    comparison_controls.addWidget(add_comparison)
+    comparison_controls.addWidget(remove_comparison)
+    comparison_controls.addWidget(clear_comparison_button)
+    comparison_cards = QHBoxLayout()
+    comparison_panels: list[QTextEdit] = []
+    for index in range(3):
+        panel = QTextEdit()
+        panel.setObjectName(f"candidate-comparison-slot-{index + 1}")
+        panel.setReadOnly(True)
+        panel.setPlaceholderText("Empty comparison slot")
+        panel.setPlainText("Empty comparison slot")
+        panel.setMinimumWidth(220)
+        comparison_cards.addWidget(panel)
+        comparison_panels.append(panel)
+
     content_splitter = QSplitter(Qt.Orientation.Vertical)
     content_splitter.setObjectName("draft-content-splitter")
     composition_section = QWidget()
@@ -291,15 +315,25 @@ def create_main_window(
     candidate_layout.addWidget(candidate_filter_status)
     candidate_layout.addWidget(candidate_sort_status)
     candidate_layout.addWidget(candidates)
+    comparison_section = QWidget()
+    comparison_section.setObjectName("candidate-comparison")
+    comparison_layout = QVBoxLayout(comparison_section)
+    comparison_layout.setContentsMargins(0, 0, 0, 0)
+    comparison_layout.addWidget(QLabel("Candidate comparison — local display only"))
+    comparison_layout.addWidget(comparison_status)
+    comparison_layout.addLayout(comparison_controls)
+    comparison_layout.addLayout(comparison_cards)
     content_splitter.addWidget(composition_section)
     content_splitter.addWidget(candidate_section)
     content_splitter.addWidget(explanation_panel)
+    content_splitter.addWidget(comparison_section)
     for index in range(content_splitter.count()):
         content_splitter.setCollapsible(index, False)
     content_splitter.setStretchFactor(0, 1)
     content_splitter.setStretchFactor(1, 5)
     content_splitter.setStretchFactor(2, 2)
-    content_splitter.setSizes([130, 360, 160])
+    content_splitter.setStretchFactor(3, 2)
+    content_splitter.setSizes([120, 330, 150, 180])
     layout.addWidget(content_splitter, 1)
     if session is not None:
         rendered_rows: list[CandidateRow] = []
@@ -312,6 +346,8 @@ def create_main_window(
         pair_state = PairRefreshState.IDLE
         sort_column: CandidateSortColumn | None = None
         sort_descending = False
+        comparison_hero_ids: list[int] = []
+        comparison_rows_by_id: dict[int, CandidateRow] = {}
 
         def update_composition_context() -> None:
             assignments = session.to_draft_state().allied_picks
@@ -372,6 +408,97 @@ def create_main_window(
                 return None
             row = candidates.currentRow()
             return rendered_rows[row] if 0 <= row < len(rendered_rows) else None
+
+        def comparison_component_text(row: CandidateRow, name: str) -> str:
+            value = dict(row.experimental_components).get(name)
+            if value is None:
+                return "unavailable — fixed weight contributes neutral zero"
+            return format_optional_rate(value)
+
+        def update_comparison_controls() -> None:
+            row = selected_candidate_row()
+            hero_id = row.hero.hero_id if row is not None else None
+            add_comparison.setEnabled(
+                hero_id is not None
+                and hero_id not in comparison_hero_ids
+                and len(comparison_hero_ids) < 3
+            )
+            remove_comparison.setEnabled(hero_id is not None and hero_id in comparison_hero_ids)
+            clear_comparison_button.setEnabled(bool(comparison_hero_ids))
+
+        def update_comparison() -> None:
+            legal_ids = {hero.hero_id for hero in session.candidates}
+            comparison_hero_ids[:] = [
+                hero_id
+                for hero_id in comparison_hero_ids
+                if hero_id in legal_ids and hero_id in comparison_rows_by_id
+            ]
+            role_text = "Position 4" if session.role is Role.POSITION_4 else "Position 5"
+            for index, panel in enumerate(comparison_panels):
+                if index >= len(comparison_hero_ids):
+                    panel.setPlainText("Empty comparison slot")
+                    continue
+                row = comparison_rows_by_id[comparison_hero_ids[index]]
+                score = (
+                    "unavailable — no applicable public recommendation evidence"
+                    if row.experimental_score is None
+                    else (
+                        f"{row.experimental_score:.1f} "
+                        "(experimental ordering score; not a win prediction)"
+                    )
+                )
+                confidence = (
+                    "unavailable"
+                    if row.evidence_confidence is None
+                    else f"{row.evidence_confidence:.0%}"
+                )
+                component_values = {
+                    name: escape(comparison_component_text(row, name))
+                    for name in ("meta", "counter", "synergy", "personal")
+                }
+                panel.setHtml(
+                    "".join(
+                        (
+                            f"<h3>{escape(row.display_name)}</h3>",
+                            f"<p><b>Experimental score:</b> {escape(score)}</p>",
+                            f"<p><b>Confidence:</b> {escape(confidence)}</p>",
+                            f"<p><b>Meta:</b> {component_values['meta']}</p>",
+                            f"<p><b>Counter:</b> {component_values['counter']}</p>",
+                            f"<p><b>Synergy:</b> {component_values['synergy']}</p>",
+                            f"<p><b>Personal:</b> {component_values['personal']}</p>",
+                            f"<p><b>Role:</b> {role_text}</p>",
+                        )
+                    )
+                )
+            comparison_status.setText(
+                "Comparison: "
+                + (
+                    f"{len(comparison_hero_ids)} / 3 legal candidates — local display only; "
+                    "does not change recommendation evidence, score, shortlist, or requests."
+                    if comparison_hero_ids
+                    else "select up to 3 legal candidates to compare locally."
+                )
+            )
+            update_comparison_controls()
+
+        def add_selected_to_comparison() -> None:
+            row = selected_candidate_row()
+            if row is None or row.hero.hero_id in comparison_hero_ids:
+                update_comparison_controls()
+                return
+            if len(comparison_hero_ids) < 3:
+                comparison_hero_ids.append(row.hero.hero_id)
+            update_comparison()
+
+        def remove_selected_from_comparison() -> None:
+            row = selected_candidate_row()
+            if row is not None and row.hero.hero_id in comparison_hero_ids:
+                comparison_hero_ids.remove(row.hero.hero_id)
+            update_comparison()
+
+        def clear_comparison() -> None:
+            comparison_hero_ids.clear()
+            update_comparison()
 
         def update_candidate_sort_status() -> None:
             sort_description = candidate_sort_description()
@@ -605,10 +732,10 @@ def create_main_window(
             recommendations = scorer.rank(
                 session.to_draft_state(), session.candidates, effective_evidence(), personal_stats
             )
-            rows = filter_candidates(
-                build_candidate_rows(session.candidates, personal_stats, recommendations),
-                search.text(),
-            )
+            all_rows = build_candidate_rows(session.candidates, personal_stats, recommendations)
+            comparison_rows_by_id.clear()
+            comparison_rows_by_id.update({row.hero.hero_id: row for row in all_rows})
+            rows = filter_candidates(all_rows, search.text())
             if sort_column is not None:
                 rows = sort_candidate_rows(rows, sort_column, sort_descending)
             rendered_rows[:] = rows
@@ -637,6 +764,7 @@ def create_main_window(
             else:
                 candidates.setCurrentCell(selected_index, 0)
             update_recommendation_explanation()
+            update_comparison()
             update_draft_action_controls()
 
         def sort_candidates(section: int) -> None:
@@ -835,6 +963,9 @@ def create_main_window(
 
         reset.clicked.connect(reset_draft)
         manual_refresh.clicked.connect(trigger_manual_pair_refresh)
+        add_comparison.clicked.connect(add_selected_to_comparison)
+        remove_comparison.clicked.connect(remove_selected_from_comparison)
+        clear_comparison_button.clicked.connect(clear_comparison)
         save_composition.clicked.connect(save_ally_composition)
         configure_player.clicked.connect(save_player_account)
         clear_player.clicked.connect(clear_player_account)
@@ -843,6 +974,7 @@ def create_main_window(
         search.textChanged.connect(lambda _: refresh())
         clear_search.clicked.connect(clear_candidate_search)
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
+        candidates.itemSelectionChanged.connect(update_comparison_controls)
         allies.itemSelectionChanged.connect(sync_composition_controls)
         candidates.itemSelectionChanged.connect(update_draft_action_controls)
         allies.itemSelectionChanged.connect(update_draft_action_controls)
@@ -883,6 +1015,9 @@ def create_main_window(
             search,
             clear_search,
             candidates,
+            add_comparison,
+            remove_comparison,
+            clear_comparison_button,
         ):
             widget.setEnabled(False)
     window.setCentralWidget(contents)

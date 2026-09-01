@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QRadioButton,
+    QSplitter,
     QTableWidget,
     QTextEdit,
 )
@@ -165,6 +166,46 @@ def test_search_and_table_selection_do_not_schedule_pair_network_work() -> None:
     table.selectRow(0)
     app.processEvents()
     assert service.calls == before
+    window.close()
+
+
+def test_resizable_content_layout_preserves_controls_without_pair_work() -> None:
+    """Splitter resizing is presentation-only and leaves pair refresh idle."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.resize(1000, 720)
+    window.show()
+    app.processEvents()
+
+    splitter = window.findChild(QSplitter, "draft-content-splitter")
+    composition = window.findChild(QTextEdit, "composition-context")
+    table = window.findChild(QTableWidget, "candidate-table")
+    explanation = _explanation(window)
+    assert splitter is not None
+    assert composition is not None
+    assert table is not None
+    assert splitter.count() == 3
+    assert all(size > 0 for size in splitter.sizes())
+    assert composition.isVisible() and table.isVisible() and explanation.isVisible()
+    assert table.viewport().height() >= 120
+
+    splitter.setSizes([110, 360, 150])
+    window.resize(920, 680)
+    app.processEvents()
+    assert table.viewport().height() >= 100
+    assert _button(window, "Add Ally").isVisible()
+    assert _button(window, "Refresh pair evidence").isVisible()
+    assert service.calls == 0
+    assert window.pair_refresh_controller is not None
+    assert window.pair_refresh_controller.active_thread is None
     window.close()
 
 

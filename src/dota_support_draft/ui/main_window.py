@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QRadioButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -99,6 +100,7 @@ def create_main_window(
     window.setWindowTitle("Dota Support Draft Assistant")
     contents = QWidget()
     layout = QVBoxLayout(contents)
+    layout.setSpacing(6)
     layout.addWidget(QLabel("Dota Support Draft Assistant"))
     player_label, warning = format_player_status(player, personal_error)
     status = QLabel(
@@ -135,6 +137,7 @@ def create_main_window(
     enemies.setObjectName("enemy-picks")
     bans.setObjectName("banned-heroes")
     for label, widget in (("Allied Picks", allies), ("Enemy Picks", enemies), ("Bans", bans)):
+        widget.setMaximumHeight(110)
         column = QVBoxLayout()
         column.addWidget(QLabel(label))
         column.addWidget(widget)
@@ -143,6 +146,8 @@ def create_main_window(
     composition_panel = QTextEdit()
     composition_panel.setObjectName("composition-context")
     composition_panel.setReadOnly(True)
+    composition_panel.setMinimumHeight(72)
+    composition_panel.setMaximumHeight(150)
     composition_panel.setPlainText(
         "Manual draft context — not statistical lane-fit; not auto-detected.\n"
         "No allied picks have been added."
@@ -174,8 +179,6 @@ def create_main_window(
     composition_controls.addWidget(team_position_input)
     composition_controls.addWidget(planned_lane_input)
     composition_controls.addWidget(save_composition)
-    layout.addWidget(composition_panel)
-    layout.addLayout(composition_controls)
     search = QLineEdit()
     search.setPlaceholderText("Hero search")
     layout.addWidget(search)
@@ -255,14 +258,38 @@ def create_main_window(
         "does not change recommendation evidence or score."
     )
     candidate_sort_status.setObjectName("candidate-sort-status")
-    layout.addWidget(candidate_sort_status)
-    layout.addWidget(candidates)
+    candidates.setMinimumHeight(180)
     explanation_panel = QTextEdit()
     explanation_panel.setObjectName("recommendation-explanation")
     explanation_panel.setReadOnly(True)
+    explanation_panel.setMinimumHeight(100)
     explanation_panel.setPlaceholderText("Select a candidate hero to inspect its evidence.")
     explanation_panel.setPlainText("Select a candidate hero to inspect its evidence.")
-    layout.addWidget(explanation_panel)
+
+    content_splitter = QSplitter(Qt.Orientation.Vertical)
+    content_splitter.setObjectName("draft-content-splitter")
+    composition_section = QWidget()
+    composition_section.setObjectName("composition-context-section")
+    composition_layout = QVBoxLayout(composition_section)
+    composition_layout.setContentsMargins(0, 0, 0, 0)
+    composition_layout.addWidget(composition_panel)
+    composition_layout.addLayout(composition_controls)
+    candidate_section = QWidget()
+    candidate_section.setObjectName("candidate-table-section")
+    candidate_layout = QVBoxLayout(candidate_section)
+    candidate_layout.setContentsMargins(0, 0, 0, 0)
+    candidate_layout.addWidget(candidate_sort_status)
+    candidate_layout.addWidget(candidates)
+    content_splitter.addWidget(composition_section)
+    content_splitter.addWidget(candidate_section)
+    content_splitter.addWidget(explanation_panel)
+    for index in range(content_splitter.count()):
+        content_splitter.setCollapsible(index, False)
+    content_splitter.setStretchFactor(0, 1)
+    content_splitter.setStretchFactor(1, 5)
+    content_splitter.setStretchFactor(2, 2)
+    content_splitter.setSizes([130, 360, 160])
+    layout.addWidget(content_splitter, 1)
     if session is not None:
         rendered_rows: list[CandidateRow] = []
         scorer = ExperimentalEvidenceScoringEngine()
@@ -818,5 +845,6 @@ def create_main_window(
         ):
             widget.setEnabled(False)
     window.setCentralWidget(contents)
-    window.resize(900, 650)
+    window.setMinimumSize(860, 600)
+    window.resize(1050, 760)
     return window

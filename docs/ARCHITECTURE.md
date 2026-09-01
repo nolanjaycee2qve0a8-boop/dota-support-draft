@@ -26,6 +26,8 @@ DOTA-014 keeps manual draft actions at the same local boundary. The UI derives a
 
 DOTA-015 adds a local `CandidateSortColumn` display-order boundary after candidate rows have been built and filtered. It sorts typed `CandidateRow` numeric fields and evidence components rather than rendered strings; unavailable numeric values remain last for both directions, and stable ties retain the default recommendation order. Sorting neither changes the canonical candidate sequence passed to pair shortlist construction nor calls the pair controller.
 
+DOTA-018 places the local composition context, candidate table, and selected-candidate explanation in a vertical Qt splitter. The composition and explanation text edits remain read-only and scrollable; divider movement and window resizing are strictly presentation operations with no dependency on the draft session, pair controller, provider, or scoring engine.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

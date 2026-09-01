@@ -640,10 +640,15 @@ def test_recommendation_explanation_tracks_selection_and_search_without_pair_net
     assert panel.toPlainText() == "Select a candidate hero to inspect its evidence."
 
     table.selectRow(0)
-    assert "Candidate: Hero 1" in panel.toPlainText()
-    assert "Experimental score:" in panel.toPlainText()
-    assert "Why:" in panel.toPlainText()
-    assert "Personal: unavailable — fixed weight contributes neutral zero" in panel.toPlainText()
+    panel_text = panel.toPlainText()
+    assert "Candidate: Hero 1" in panel_text
+    assert "Recommendation summary" in panel_text
+    assert "Experimental score:" in panel_text
+    assert "experimental ordering score; not a win prediction" in panel_text
+    assert (
+        "Evidence" in panel_text and "Why / availability" in panel_text and "Context" in panel_text
+    )
+    assert "Personal: unavailable — fixed weight contributes neutral zero" in panel_text
 
     search.setText("Hero 2")
     app.processEvents()

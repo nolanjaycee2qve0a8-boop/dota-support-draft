@@ -32,6 +32,8 @@ DOTA-018 improves the draft window's local readability with a resizable vertical
 
 DOTA-020 adds local candidate-filter feedback and a one-click search clear action. The candidate area shows the displayed/legal count, text filter, and display sort; these controls only change local presentation and never alter recommendation evidence, pair shortlists, or requests.
 
+DOTA-022 structures the selected-candidate explanation into Candidate, recommendation summary, Evidence, Why/availability, and Context sections. It presents already calculated values only; its experimental ordering score remains an explanation rather than a win prediction, and it never requests new data.
+
 ## Windows local Token launch
 
 From the project root, run:

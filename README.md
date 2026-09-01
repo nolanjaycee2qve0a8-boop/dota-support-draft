@@ -28,6 +28,8 @@ DOTA-014 adds manual-draft action guardrails: a local status display shows the f
 
 DOTA-015 adds local candidate-table sorting. Click a table heading to sort its displayed Hero, experimental evidence, or explanation values; click again to reverse it. Unavailable evidence is always displayed after available evidence. The sort indicator is display order only: it does not change recommendation evidence, scores, pair shortlists, or data requests.
 
+DOTA-018 improves the draft window's local readability with a resizable vertical content area for the manual composition context, candidate table, and selected-candidate explanation. These are scrollable presentation areas only: resizing or moving their divider does not change draft state, request pair evidence, or alter recommendation data.
+
 ## Windows local Token launch
 
 From the project root, run:

@@ -30,6 +30,8 @@ DOTA-018 places the local composition context, candidate table, and selected-can
 
 DOTA-020 derives the candidate result count, text-filter state, and typed display-sort description from the same local filtered `CandidateRow` sequence used to render the table. Clearing the search only emits the existing local text-change rerender; searching, clearing, sorting, and selection do not call the pair controller or any provider.
 
+DOTA-022 formats the existing selected `CandidateRow` into structured read-only text within the same explanation widget. The formatting escapes dynamic display text and preserves the score disclaimer plus unavailable/neutral-zero component wording; it has no provider, scorer, or controller dependency.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

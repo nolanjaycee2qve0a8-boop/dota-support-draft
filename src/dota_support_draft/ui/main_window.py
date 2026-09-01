@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from html import escape
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
@@ -447,25 +448,30 @@ def create_main_window(
                 else f"{row.evidence_confidence:.0%}"
             )
             role_text = "Position 4" if session.role is Role.POSITION_4 else "Position 5"
-            explanation_panel.setPlainText(
-                "\n".join(
+
+            def evidence_line(label: str, value: str) -> str:
+                return f"<p><b>{escape(label)}:</b> {escape(value)}</p>"
+
+            explanation_panel.setHtml(
+                "".join(
                     (
-                        f"Candidate: {row.display_name}",
-                        f"Experimental score: {score}",
-                        f"Confidence: {confidence}",
-                        "Evidence:",
-                        f"  Meta: {component_text('meta')}",
-                        f"  Counter: {component_text('counter')}",
-                        f"  Synergy: {component_text('synergy')}",
-                        f"  Personal: {component_text('personal')}",
-                        "Why:",
-                        row.explanation or row.status,
-                        "Context:",
-                        f"  Role: {role_text}",
-                        f"  {pair_coverage_label.text()}",
-                        "  Meta, Counter, and Synergy use current-week role evidence; "
-                        "it is not patch-isolated.",
-                        "  Personal history is all-time and role-unknown.",
+                        f"<h2>Candidate: {escape(row.display_name)}</h2>",
+                        "<h3>Recommendation summary</h3>",
+                        evidence_line("Experimental score", score),
+                        evidence_line("Confidence", confidence),
+                        "<h3>Evidence</h3>",
+                        evidence_line("Meta", component_text("meta")),
+                        evidence_line("Counter", component_text("counter")),
+                        evidence_line("Synergy", component_text("synergy")),
+                        evidence_line("Personal", component_text("personal")),
+                        "<h3>Why / availability</h3>",
+                        f"<p><b>Why:</b> {escape(row.explanation or row.status)}</p>",
+                        "<h3>Context</h3>",
+                        evidence_line("Role", role_text),
+                        f"<p>{escape(pair_coverage_label.text())}</p>",
+                        "<p>Meta, Counter, and Synergy use current-week role evidence; "
+                        "it is not patch-isolated.</p>",
+                        "<p>Personal history is all-time and role-unknown.</p>",
                     )
                 )
             )

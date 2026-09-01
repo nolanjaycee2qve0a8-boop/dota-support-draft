@@ -4,8 +4,10 @@ from datetime import UTC, date, datetime
 from PySide6.QtCore import QThread, QTimer
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPushButton,
     QRadioButton,
     QSplitter,
@@ -18,10 +20,12 @@ from dota_support_draft.domain import (
     EvidenceSet,
     Hero,
     Patch,
+    PlannedLane,
     Role,
     RoleEvidenceBundle,
     RoleEvidenceBundles,
     RoleMetaEvidence,
+    TeamPosition,
 )
 from dota_support_draft.draft import ManualDraftSession, PairEvidenceResult
 from dota_support_draft.ui.main_window import create_main_window
@@ -1030,3 +1034,119 @@ def test_only_a_successful_draft_mutation_schedules_pair_refresh() -> None:
     assert controller.generation == generation_after_add
     assert controller.active_thread is None and controller.findChildren(QThread) == []
     window.close()
+
+
+def test_full_offscreen_user_workflow_preserves_local_and_shutdown_contracts() -> None:
+    """Exercise draft, local presentation, latest-wins refresh, reset, and deferred close."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 7))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = RecordingSlowPairService(delay=0.15)
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit, "candidate-search")
+    clear_search = window.findChild(QPushButton, "candidate-search-clear")
+    allies = window.findChild(QListWidget, "allied-picks")
+    position = window.findChild(QComboBox, "ally-team-position")
+    lane = window.findChild(QComboBox, "ally-planned-lane")
+    manual_refresh = window.findChild(QPushButton, "manual-pair-refresh")
+    assert (
+        table is not None
+        and search is not None
+        and clear_search is not None
+        and allies is not None
+        and position is not None
+        and lane is not None
+        and manual_refresh is not None
+        and window.pair_refresh_controller is not None
+    )
+    controller = window.pair_refresh_controller
+
+    def select_candidate(name: str) -> None:
+        index = next(row for row in range(table.rowCount()) if table.item(row, 0).text() == name)
+        table.selectRow(index)
+
+    table.horizontalHeader().sectionClicked.emit(0)
+    select_candidate("Hero 1")
+    search.setText("Hero 1")
+    app.processEvents()
+    assert table.rowCount() == 1 and "Candidate: Hero 1" in _explanation(window).toPlainText()
+    clear_search.click()
+    app.processEvents()
+    assert table.rowCount() == 6 and not clear_search.isEnabled()
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+
+    select_candidate("Hero 1")
+    _button(window, "Add Ally").click()
+    _wait(app, lambda: len(service.inputs) == 1 and controller.active_thread is not None)
+    generation_after_ally = controller.generation
+    _button(window, "Add Ally").click()
+    app.processEvents()
+    assert controller.generation == generation_after_ally and len(service.inputs) == 1
+
+    allies.setCurrentRow(0)
+    position.setCurrentIndex(position.findData(TeamPosition.POSITION_1))
+    lane.setCurrentIndex(lane.findData(PlannedLane.SAFE))
+    _button(window, "Save Ally Context").click()
+    assert (
+        "Hero 1: P1, Safe (manual)"
+        in window.findChild(QTextEdit, "composition-context").toPlainText()
+    )
+    assert len(service.inputs) == 1 and controller.active_thread is not None
+
+    select_candidate("Hero 2")
+    _button(window, "Add Enemy").click()
+    select_candidate("Hero 3")
+    _button(window, "Ban").click()
+    radios = {radio.text(): radio for radio in window.findChildren(QRadioButton)}
+    radios["Position 5"].click()
+    manual_refresh.click()
+    assert controller.generation == 5
+    _wait(
+        app,
+        lambda: (
+            len(service.inputs) == 2
+            and controller.active_thread is None
+            and controller.retired_worker_count == 0
+        ),
+    )
+    assert [input_data.generation for input_data in service.inputs] == [1, 5]
+    latest = service.inputs[-1]
+    assert latest.context.role is Role.POSITION_5
+    assert latest.context.ally_ids == (1,) and latest.context.enemy_ids == (2,)
+    assert {hero.hero_id for hero in latest.draft.banned_heroes} == {3}
+
+    _button(window, "Reset Draft").click()
+    app.processEvents()
+    assert controller.generation == 6 and len(service.inputs) == 2
+    assert (
+        "No allied picks have been added."
+        in window.findChild(QTextEdit, "composition-context").toPlainText()
+    )
+    assert "allies 0 | enemies 0" in _label(window, "pair-refresh-context").text()
+
+    select_candidate("Hero 4")
+    _button(window, "Add Enemy").click()
+    _wait(app, lambda: len(service.inputs) == 3 and controller.active_thread is not None)
+    manual_refresh.click()
+    assert controller.generation == 8 and controller.active_thread is not None
+    window.close()
+    assert window.isVisible()
+    _wait(
+        app,
+        lambda: (
+            not window.isVisible()
+            and controller.active_thread is None
+            and controller.retired_worker_count == 0
+        ),
+        seconds=3.0,
+    )
+    app.processEvents()
+    assert [input_data.generation for input_data in service.inputs] == [1, 5, 7]
+    assert controller.generation == 9 and controller.findChildren(QThread) == []

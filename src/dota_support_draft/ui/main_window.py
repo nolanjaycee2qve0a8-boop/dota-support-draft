@@ -180,8 +180,11 @@ def create_main_window(
     composition_controls.addWidget(planned_lane_input)
     composition_controls.addWidget(save_composition)
     search = QLineEdit()
+    search.setObjectName("candidate-search")
     search.setPlaceholderText("Hero search")
-    layout.addWidget(search)
+    clear_search = QPushButton("Clear search")
+    clear_search.setObjectName("candidate-search-clear")
+    clear_search.setEnabled(False)
     player_config_status = QLabel(
         "Configure a public numeric Steam32/OpenDota account ID. Changes load after restart."
     )
@@ -258,6 +261,8 @@ def create_main_window(
         "does not change recommendation evidence or score."
     )
     candidate_sort_status.setObjectName("candidate-sort-status")
+    candidate_filter_status = QLabel("Candidate results: loading local display…")
+    candidate_filter_status.setObjectName("candidate-filter-status")
     candidates.setMinimumHeight(180)
     explanation_panel = QTextEdit()
     explanation_panel.setObjectName("recommendation-explanation")
@@ -278,6 +283,11 @@ def create_main_window(
     candidate_section.setObjectName("candidate-table-section")
     candidate_layout = QVBoxLayout(candidate_section)
     candidate_layout.setContentsMargins(0, 0, 0, 0)
+    candidate_filter_controls = QHBoxLayout()
+    candidate_filter_controls.addWidget(search)
+    candidate_filter_controls.addWidget(clear_search)
+    candidate_layout.addLayout(candidate_filter_controls)
+    candidate_layout.addWidget(candidate_filter_status)
     candidate_layout.addWidget(candidate_sort_status)
     candidate_layout.addWidget(candidates)
     content_splitter.addWidget(composition_section)
@@ -363,13 +373,28 @@ def create_main_window(
             return rendered_rows[row] if 0 <= row < len(rendered_rows) else None
 
         def update_candidate_sort_status() -> None:
+            sort_description = candidate_sort_description()
             if sort_column is None:
                 candidate_sort_status.setText(
-                    "Candidate display order: default recommendation order — display order only; "
+                    f"Candidate display order: {sort_description} — display order only; "
                     "does not change recommendation evidence or score."
                 )
                 candidate_header.setSortIndicatorShown(False)
                 return
+
+            candidate_sort_status.setText(
+                f"Candidate display order: {sort_description} — display order only; "
+                "does not change recommendation evidence or score."
+            )
+            candidate_header.setSortIndicatorShown(True)
+            candidate_header.setSortIndicator(
+                int(sort_column),
+                Qt.SortOrder.DescendingOrder if sort_descending else Qt.SortOrder.AscendingOrder,
+            )
+
+        def candidate_sort_description() -> str:
+            if sort_column is None:
+                return "default recommendation order"
             labels = {
                 CandidateSortColumn.HERO: "Hero",
                 CandidateSortColumn.EXPERIMENTAL_SCORE: "Experimental Score",
@@ -381,14 +406,18 @@ def create_main_window(
                 CandidateSortColumn.WHY: "Why",
             }
             direction = "descending" if sort_descending else "ascending"
-            candidate_sort_status.setText(
-                f"Candidate display order: {labels[sort_column]} {direction} — display order only; "
-                "does not change recommendation evidence or score."
-            )
-            candidate_header.setSortIndicatorShown(True)
-            candidate_header.setSortIndicator(
-                int(sort_column),
-                Qt.SortOrder.DescendingOrder if sort_descending else Qt.SortOrder.AscendingOrder,
+            return f"{labels[sort_column]} {direction}"
+
+        def update_candidate_filter_status(displayed_count: int) -> None:
+            filter_text = search.text().strip()
+            clear_search.setEnabled(bool(filter_text))
+            displayed_filter = f'"{filter_text}"' if filter_text else "none"
+            candidate_filter_status.setText(
+                "Candidate results: "
+                f"displaying {displayed_count} / {len(session.candidates)} legal candidates "
+                f"| text filter: {displayed_filter} "
+                f"| display sort: {candidate_sort_description()} — local display only; "
+                "does not change recommendation, shortlist, or evidence."
             )
 
         def update_recommendation_explanation() -> None:
@@ -577,6 +606,7 @@ def create_main_window(
             if sort_column is not None:
                 rows = sort_candidate_rows(rows, sort_column, sort_descending)
             rendered_rows[:] = rows
+            update_candidate_filter_status(len(rows))
             candidates.setRowCount(len(rows))
             for index, row in enumerate(rows):
                 components = dict(row.experimental_components)
@@ -616,6 +646,9 @@ def create_main_window(
                 sort_descending = False
             update_candidate_sort_status()
             refresh()
+
+        def clear_candidate_search() -> None:
+            search.clear()
 
         def set_pair_state(state: PairRefreshState, message: str | None) -> None:
             nonlocal pair_state
@@ -802,6 +835,7 @@ def create_main_window(
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
         five.toggled.connect(lambda checked: choose_role(Role.POSITION_5, checked))
         search.textChanged.connect(lambda _: refresh())
+        clear_search.clicked.connect(clear_candidate_search)
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
         allies.itemSelectionChanged.connect(sync_composition_controls)
         candidates.itemSelectionChanged.connect(update_draft_action_controls)
@@ -841,6 +875,7 @@ def create_main_window(
             configure_player,
             clear_player,
             search,
+            clear_search,
             candidates,
         ):
             widget.setEnabled(False)

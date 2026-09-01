@@ -28,6 +28,8 @@ DOTA-015 adds a local `CandidateSortColumn` display-order boundary after candida
 
 DOTA-018 places the local composition context, candidate table, and selected-candidate explanation in a vertical Qt splitter. The composition and explanation text edits remain read-only and scrollable; divider movement and window resizing are strictly presentation operations with no dependency on the draft session, pair controller, provider, or scoring engine.
 
+DOTA-020 derives the candidate result count, text-filter state, and typed display-sort description from the same local filtered `CandidateRow` sequence used to render the table. Clearing the search only emits the existing local text-change rerender; searching, clearing, sorting, and selection do not call the pair controller or any provider.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

@@ -1,6 +1,6 @@
 # Roadmap
 
-DOTA-001 through DOTA-018 are closed. DOTA-010 synchronized the post-merge management state; DOTA-011 added local public-account configuration; DOTA-012 and DOTA-016 closed research/gate documents; DOTA-013 added manual ally position/planned-lane context; DOTA-014 added local draft-action guardrails; DOTA-015 added typed display sorting; and DOTA-018 closed the resizable draft-layout improvement. DOTA-017 was a local pre-merge integration validation, not a separately released product milestone.
+DOTA-001 through DOTA-022 are closed. DOTA-019 synchronized post-merge state; DOTA-020 added local candidate-filter clarity; DOTA-021 added an offscreen Qt workflow regression; and DOTA-022 added structured candidate-evidence readability. DOTA-017 was a local pre-merge integration validation, not a separately released product milestone.
 
 DOTA-012–016 were merged together in PR #12 at `8532745`; DOTA-018 was merged in PR #13 at `14f3c3a`.
 
@@ -9,7 +9,7 @@ Possible future directions include:
 - team-composition and lane-fit evidence（先参阅 [DOTA-012 研究](DOTA-012_COMPOSITION_LANE_FIT_RESEARCH.md)与 [DOTA-016 provider gate](DOTA-016_LANE_FIT_PROVIDER_GATE.md)；真正 statistical lane-fit 仍未获准实施）;
 - further recommendation explanation improvements beyond the completed selected-candidate panel and local layout work;
 - legal adapters that produce `DraftState`;
-- Windows packaging.
+- Windows packaging（先参阅 [DOTA-023 Windows packaging gate](DOTA-023_WINDOWS_PACKAGING_GATE.md)；仅允许其有条件批准的本地 onedir 验证，不代表安装器、签名或发布已获批准）。
 
 These are directions for later review, not commitments or approved implementation work.
 

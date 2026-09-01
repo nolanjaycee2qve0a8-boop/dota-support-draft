@@ -32,10 +32,14 @@ Providers → Normalization → Domain → Draft / Scoring → UI
 | DOTA-016 | `8532745` (lane-fit provider gate research, PR #12) |
 | DOTA-017 | Local pre-merge integration validation only; no standalone release |
 | DOTA-018 | `14f3c3a` (draft layout readability, PR #13) |
+| DOTA-019 | `48f4c05` (durable management-state sync, PR #14) |
+| DOTA-020 | `2090778` (candidate filter clarity, PR #15) |
+| DOTA-021 | `6391e74` (Qt workflow regression, PR #17) |
+| DOTA-022 | `ebd5e38` (candidate evidence readability, PR #16) |
 
 DOTA-005 was merged to `main` at `46f978a` (`DOTA-005: async pair evidence refresh (#4)`). DOTA-006 was merged at `8f71ebc` with observable pair refresh context and the Qt worker-retirement fix. DOTA-007 was merged at `6c55551` with manual pair refresh. DOTA-008 was merged at `8f971f1` with the selected recommendation explanation. DOTA-009 was merged at `48d4ab1` with the local Windows Token launcher. DOTA-010 and DOTA-011 were merged through PRs #10 and #11. PR #12 merged DOTA-012 research, DOTA-013 manual context, DOTA-014 guardrails, DOTA-015 local sorting, and DOTA-016 research/gate together. DOTA-017 was the local integration candidate used to validate that set before its merge; it is not a separately released product milestone. DOTA-018 was merged through PR #13 at `14f3c3a`.
 
-DOTA-001 through DOTA-018 are closed. There is no active product implementation task.
+DOTA-019 synchronized post-merge management state. DOTA-020 added local candidate-filter visibility and clearing. DOTA-021 added the offscreen Qt workflow regression. DOTA-022 was merged through PR #16 at `ebd5e38` with the structured candidate-evidence panel; DOTA-021 was merged through PR #17 at `6391e74`. DOTA-001 through DOTA-022 are closed. There is no active product implementation task.
 
 The pair-refresh milestones were verified with a 250 ms debounce, background `QThread` pair evidence refresh, latest-state-wins scheduling, a bounded top-8 shortlist, at most three cold requests, and cooperative deferred shutdown with safe worker/thread retirement. The local Windows launcher accepts a Token only through hidden terminal input for the launch process; it is temporary and never enters the repository.
 
@@ -56,3 +60,4 @@ The pair-refresh milestones were verified with a 250 ms debounce, background `QT
 - Candidate-table sorting is typed local display order only. It cannot change scores, pair shortlists, requests, or cache behavior.
 - The composition context, candidate table, and explanation are read-only/scrollable presentation areas in a local splitter; resizing them does not modify draft or pair state.
 - The lane-fit/provider evidence gate remains closed: no statistical lane-fit value, recommendation effect, or provider capability claim is implemented or approved.
+- Windows packaging is not yet a release capability. DOTA-023 records the conditional local-onedir gate; no installer, signed binary, or distributed executable is confirmed.

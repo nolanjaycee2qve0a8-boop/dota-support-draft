@@ -30,6 +30,8 @@ DOTA-015 adds local candidate-table sorting. Click a table heading to sort its d
 
 DOTA-018 improves the draft window's local readability with a resizable vertical content area for the manual composition context, candidate table, and selected-candidate explanation. These are scrollable presentation areas only: resizing or moving their divider does not change draft state, request pair evidence, or alter recommendation data.
 
+DOTA-020 adds local candidate-filter feedback and a one-click search clear action. The candidate area shows the displayed/legal count, text filter, and display sort; these controls only change local presentation and never alter recommendation evidence, pair shortlists, or requests.
+
 ## Windows local Token launch
 
 From the project root, run:

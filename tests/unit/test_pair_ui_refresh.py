@@ -158,7 +158,7 @@ def test_search_and_table_selection_do_not_schedule_pair_network_work() -> None:
             .startswith("Pair coverage: Counter: not requested; Synergy: available")
         ),
     )
-    search = window.findChild(QLineEdit)
+    search = window.findChild(QLineEdit, "candidate-search")
     assert search is not None
     before = service.calls
     search.setText("hero")
@@ -634,7 +634,7 @@ def test_recommendation_explanation_tracks_selection_and_search_without_pair_net
     )
     window.show()
     table = window.findChild(QTableWidget)
-    search = window.findChild(QLineEdit)
+    search = window.findChild(QLineEdit, "candidate-search")
     panel = _explanation(window)
     assert table is not None and search is not None and panel.isReadOnly()
     assert panel.toPlainText() == "Select a candidate hero to inspect its evidence."
@@ -651,6 +651,66 @@ def test_recommendation_explanation_tracks_selection_and_search_without_pair_net
     table.selectRow(0)
     assert "Candidate: Hero 2" in panel.toPlainText()
     assert service.calls == 0
+    window.close()
+
+
+def test_candidate_filter_status_and_clear_are_local_and_keep_display_sort() -> None:
+    """Search feedback and clearing rerender only local candidate presentation."""
+    app = QApplication.instance() or QApplication([])
+    heroes = (
+        Hero(1, "zulu", "Zulu"),
+        Hero(2, "bravo", "Bravo"),
+        Hero(3, "alpha", "Alpha"),
+    )
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit, "candidate-search")
+    clear = window.findChild(QPushButton, "candidate-search-clear")
+    filter_status = _label(window, "candidate-filter-status")
+    assert table is not None and search is not None and clear is not None
+    assert "displaying 3 / 3 legal candidates" in filter_status.text()
+    assert "text filter: none" in filter_status.text()
+    assert "display sort: default recommendation order" in filter_status.text()
+    assert not clear.isEnabled()
+
+    table.horizontalHeader().sectionClicked.emit(0)
+    bravo_index = next(
+        index for index in range(table.rowCount()) if table.item(index, 0).text() == "Bravo"
+    )
+    table.selectRow(bravo_index)
+    search.setText("Bravo")
+    app.processEvents()
+    assert table.rowCount() == 1 and table.item(0, 0).text() == "Bravo"
+    assert "Candidate: Bravo" in _explanation(window).toPlainText()
+    assert "displaying 1 / 3 legal candidates" in filter_status.text()
+    assert 'text filter: "Bravo"' in filter_status.text()
+    assert "display sort: Hero ascending" in filter_status.text()
+    assert clear.isEnabled()
+
+    clear.click()
+    app.processEvents()
+    assert search.text() == "" and table.rowCount() == 3
+    assert "Candidate: Bravo" in _explanation(window).toPlainText()
+    assert "text filter: none" in filter_status.text()
+    assert "display sort: Hero ascending" in filter_status.text()
+    assert not clear.isEnabled()
+
+    search.setText("missing")
+    app.processEvents()
+    assert table.rowCount() == 0
+    assert _explanation(window).toPlainText() == "Select a candidate hero to inspect its evidence."
+    assert service.calls == 0
+    assert window.pair_refresh_controller is not None
+    assert window.pair_refresh_controller.generation == 0
+    assert window.pair_refresh_controller.active_thread is None
     window.close()
 
 
@@ -739,7 +799,7 @@ def test_candidate_table_sorting_preserves_visible_selection_without_pair_work()
     )
     window.show()
     table = window.findChild(QTableWidget, "candidate-table")
-    search = window.findChild(QLineEdit)
+    search = window.findChild(QLineEdit, "candidate-search")
     sort_status = _label(window, "candidate-sort-status")
     assert table is not None and search is not None and window.pair_refresh_controller is not None
     controller = window.pair_refresh_controller

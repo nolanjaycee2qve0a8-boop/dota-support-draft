@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from dota_support_draft.domain import DraftState, Hero, HeroPick, Patch, Role, TeamSide
+from dota_support_draft.domain import (
+    DraftState,
+    Hero,
+    HeroPick,
+    Patch,
+    PlannedLane,
+    Role,
+    TeamPosition,
+    TeamSide,
+)
 
 
 class ManualDraftError(ValueError):
@@ -21,6 +30,7 @@ class ManualDraftSession:
         self.allies: list[Hero] = []
         self.enemies: list[Hero] = []
         self.bans: set[Hero] = set()
+        self.ally_assignments: dict[Hero, tuple[TeamPosition, PlannedLane]] = {}
 
     def set_role(self, role: Role) -> None:
         if role not in (Role.POSITION_4, Role.POSITION_5):
@@ -47,6 +57,13 @@ class ManualDraftSession:
         self._check_available(hero)
         self.enemies.append(hero)
 
+    def set_ally_assignment(
+        self, hero: Hero, position: TeamPosition, planned_lane: PlannedLane
+    ) -> None:
+        if hero not in self.allies:
+            raise ManualDraftError("Manual composition assignment requires a current allied pick")
+        self.ally_assignments[hero] = (position, planned_lane)
+
     def ban(self, hero: Hero) -> None:
         if hero in self.allies or hero in self.enemies:
             raise ManualDraftError("Picked hero cannot be banned")
@@ -59,6 +76,7 @@ class ManualDraftSession:
 
     def remove_ally(self, hero: Hero) -> None:
         self.allies.remove(hero)
+        self.ally_assignments.pop(hero, None)
 
     def remove_enemy(self, hero: Hero) -> None:
         self.enemies.remove(hero)
@@ -67,6 +85,7 @@ class ManualDraftSession:
         self.allies.clear()
         self.enemies.clear()
         self.bans.clear()
+        self.ally_assignments.clear()
 
     @property
     def candidates(self) -> tuple[Hero, ...]:
@@ -75,7 +94,19 @@ class ManualDraftSession:
 
     def to_draft_state(self) -> DraftState:
         return DraftState(
-            tuple(HeroPick(hero, TeamSide.ALLY) for hero in self.allies),
+            tuple(
+                HeroPick(
+                    hero,
+                    TeamSide.ALLY,
+                    team_position=self.ally_assignments.get(
+                        hero, (TeamPosition.UNKNOWN, PlannedLane.UNKNOWN)
+                    )[0],
+                    planned_lane=self.ally_assignments.get(
+                        hero, (TeamPosition.UNKNOWN, PlannedLane.UNKNOWN)
+                    )[1],
+                )
+                for hero in self.allies
+            ),
             tuple(HeroPick(hero, TeamSide.ENEMY) for hero in self.enemies),
             self.role,
             self.patch,

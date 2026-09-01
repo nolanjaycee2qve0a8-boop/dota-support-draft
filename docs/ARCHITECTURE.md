@@ -20,6 +20,12 @@ DOTA-007 adds one user-triggered `refresh_now` entry to the same controller. It 
 
 DOTA-008's selected-candidate explanation panel consumes the already rendered local `CandidateRow`. It retains a candidate selection across a local rerender only when that hero remains legal and visible; otherwise it shows an explicit empty state. It has no provider or controller dependency: table selection, search, role changes, pair-result overlays, and reset only rerender local presentation data.
 
+DOTA-013 stores manual ally team-position and planned-lane values in `ManualDraftSession` and immutable `DraftState` only. They are not part of `PairEvidenceContext`, so assignment edits do not create a worker, alter the current-week pair query, or invalidate its bounded request/cache contract. The composition panel renders local manual/Unknown/conflict context; it is not a statistical lane-fit or auto-detection feature.
+
+DOTA-014 keeps manual draft actions at the same local boundary. The UI derives ally/enemy capacity and the unrestricted ban count from `ManualDraftSession`, and exposes a separate recoverable-action status without replacing bootstrap, player, or pair diagnostics. Only a successful `ManualDraftSession` mutation rerenders and calls the pair controller; disabled, unselected, capacity-full, or validation-failed actions do not create a worker or provider request.
+
+DOTA-015 adds a local `CandidateSortColumn` display-order boundary after candidate rows have been built and filtered. It sorts typed `CandidateRow` numeric fields and evidence components rather than rendered strings; unavailable numeric values remain last for both directions, and stable ties retain the default recommendation order. Sorting neither changes the canonical candidate sequence passed to pair shortlist construction nor calls the pair controller.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

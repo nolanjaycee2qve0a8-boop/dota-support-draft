@@ -7,6 +7,7 @@ from collections.abc import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,13 +29,16 @@ from dota_support_draft.domain import (
     EvidenceSet,
     Hero,
     PersonalHeroStat,
+    PlannedLane,
     Role,
     RoleEvidenceBundle,
     RoleEvidenceBundles,
     SynergyEvidence,
+    TeamPosition,
 )
 from dota_support_draft.draft import (
     CandidateRow,
+    CandidateSortColumn,
     DraftPairEvidenceService,
     ManualDraftSession,
     PairEvidenceContext,
@@ -45,6 +49,7 @@ from dota_support_draft.draft import (
     format_optional_rate,
     format_player_status,
     make_pair_input,
+    sort_candidate_rows,
 )
 from dota_support_draft.scoring import ExperimentalEvidenceScoringEngine
 from dota_support_draft.ui.pair_refresh import PairEvidenceRefreshController, PairRefreshState
@@ -126,12 +131,51 @@ def create_main_window(
     layout.addLayout(role_row)
     lists = QHBoxLayout()
     allies, enemies, bans = QListWidget(), QListWidget(), QListWidget()
+    allies.setObjectName("allied-picks")
+    enemies.setObjectName("enemy-picks")
+    bans.setObjectName("banned-heroes")
     for label, widget in (("Allied Picks", allies), ("Enemy Picks", enemies), ("Bans", bans)):
         column = QVBoxLayout()
         column.addWidget(QLabel(label))
         column.addWidget(widget)
         lists.addLayout(column)
     layout.addLayout(lists)
+    composition_panel = QTextEdit()
+    composition_panel.setObjectName("composition-context")
+    composition_panel.setReadOnly(True)
+    composition_panel.setPlainText(
+        "Manual draft context — not statistical lane-fit; not auto-detected.\n"
+        "No allied picks have been added."
+    )
+    composition_controls = QHBoxLayout()
+    team_position_input = QComboBox()
+    team_position_input.setObjectName("ally-team-position")
+    for label, position_value in (
+        ("Unknown position", TeamPosition.UNKNOWN),
+        ("Position 1", TeamPosition.POSITION_1),
+        ("Position 2", TeamPosition.POSITION_2),
+        ("Position 3", TeamPosition.POSITION_3),
+        ("Position 4", TeamPosition.POSITION_4),
+        ("Position 5", TeamPosition.POSITION_5),
+    ):
+        team_position_input.addItem(label, position_value)
+    planned_lane_input = QComboBox()
+    planned_lane_input.setObjectName("ally-planned-lane")
+    for label, lane_value in (
+        ("Unknown lane", PlannedLane.UNKNOWN),
+        ("Safe lane", PlannedLane.SAFE),
+        ("Off lane", PlannedLane.OFF),
+        ("Mid lane", PlannedLane.MID),
+        ("Roam", PlannedLane.ROAM),
+    ):
+        planned_lane_input.addItem(label, lane_value)
+    save_composition = QPushButton("Save Ally Context")
+    save_composition.setObjectName("save-ally-composition")
+    composition_controls.addWidget(team_position_input)
+    composition_controls.addWidget(planned_lane_input)
+    composition_controls.addWidget(save_composition)
+    layout.addWidget(composition_panel)
+    layout.addLayout(composition_controls)
     search = QLineEdit()
     search.setPlaceholderText("Hero search")
     layout.addWidget(search)
@@ -152,6 +196,9 @@ def create_main_window(
     player_config.addWidget(clear_player)
     layout.addWidget(player_config_status)
     layout.addLayout(player_config)
+    draft_action_status = QLabel("Draft actions: allies 0 / 5 | enemies 0 / 5 | bans 0")
+    draft_action_status.setObjectName("draft-action-status")
+    layout.addWidget(draft_action_status)
     controls = QHBoxLayout()
     add_ally, add_enemy, ban = QPushButton("Add Ally"), QPushButton("Add Enemy"), QPushButton("Ban")
     remove_ally, remove_enemy, unban, reset = (
@@ -162,6 +209,16 @@ def create_main_window(
     )
     manual_refresh = QPushButton("Refresh pair evidence")
     manual_refresh.setObjectName("manual-pair-refresh")
+    for button, object_name in (
+        (add_ally, "add-ally"),
+        (add_enemy, "add-enemy"),
+        (ban, "ban-hero"),
+        (remove_ally, "remove-ally"),
+        (remove_enemy, "remove-enemy"),
+        (unban, "unban-hero"),
+        (reset, "reset-draft"),
+    ):
+        button.setObjectName(object_name)
     for button in (
         add_ally,
         add_enemy,
@@ -176,6 +233,7 @@ def create_main_window(
     layout.addLayout(controls)
     layout.addWidget(QLabel("Personal history is ALL-TIME; ROLE UNKNOWN."))
     candidates = QTableWidget(0, 8)
+    candidates.setObjectName("candidate-table")
     candidates.setHorizontalHeaderLabels(
         [
             "Hero",
@@ -188,6 +246,16 @@ def create_main_window(
             "Why",
         ]
     )
+    candidate_header = candidates.horizontalHeader()
+    candidate_header.setObjectName("candidate-table-header")
+    candidate_header.setSectionsClickable(True)
+    candidate_header.setSortIndicatorShown(False)
+    candidate_sort_status = QLabel(
+        "Candidate display order: default recommendation order — display order only; "
+        "does not change recommendation evidence or score."
+    )
+    candidate_sort_status.setObjectName("candidate-sort-status")
+    layout.addWidget(candidate_sort_status)
     layout.addWidget(candidates)
     explanation_panel = QTextEdit()
     explanation_panel.setObjectName("recommendation-explanation")
@@ -204,10 +272,97 @@ def create_main_window(
         overlay_synergies: tuple[SynergyEvidence, ...] = ()
         latest_pair_result: PairEvidenceResult | None = None
         pair_state = PairRefreshState.IDLE
+        sort_column: CandidateSortColumn | None = None
+        sort_descending = False
+
+        def update_composition_context() -> None:
+            assignments = session.to_draft_state().allied_picks
+            lines = [
+                "Manual draft context — not statistical lane-fit; not auto-detected.",
+                "Source: manual input only.",
+            ]
+            if not assignments:
+                lines.append("No allied picks have been added.")
+            else:
+                positions: dict[TeamPosition, list[str]] = {}
+                for pick in assignments:
+                    name = pick.hero.localized_name or pick.hero.canonical_name
+                    position = pick.team_position.name.replace("POSITION_", "P")
+                    lane = pick.planned_lane.value.title()
+                    lines.append(f"{name}: {position}, {lane} (manual)")
+                    if pick.team_position is not TeamPosition.UNKNOWN:
+                        positions.setdefault(pick.team_position, []).append(name)
+                conflicts = [
+                    f"Conflict: {position.name.replace('POSITION_', 'P')} assigned to "
+                    f"{', '.join(names)}."
+                    for position, names in positions.items()
+                    if len(names) > 1
+                ]
+                lines.extend(conflicts or ["No position conflicts among manually assigned allies."])
+            composition_panel.setPlainText("\n".join(lines))
+
+        def selected_allied_hero() -> Hero | None:
+            return selected_list_hero(allies)
+
+        def sync_composition_controls() -> None:
+            hero = selected_allied_hero()
+            save_composition.setEnabled(hero is not None)
+            if hero is None:
+                return
+            position, planned_lane = session.ally_assignments.get(
+                hero, (TeamPosition.UNKNOWN, PlannedLane.UNKNOWN)
+            )
+            team_position_input.setCurrentIndex(team_position_input.findData(position))
+            planned_lane_input.setCurrentIndex(planned_lane_input.findData(planned_lane))
+
+        def save_ally_composition() -> None:
+            hero = selected_allied_hero()
+            if hero is None:
+                composition_panel.setPlainText(
+                    "Manual draft context — select a current allied pick before saving.\n"
+                    "Not statistical lane-fit; not auto-detected."
+                )
+                return
+            position = TeamPosition(str(team_position_input.currentData()))
+            planned_lane = PlannedLane(str(planned_lane_input.currentData()))
+            session.set_ally_assignment(hero, position, planned_lane)
+            update_composition_context()
+            sync_composition_controls()
 
         def selected_candidate_row() -> CandidateRow | None:
+            if not candidates.selectedItems():
+                return None
             row = candidates.currentRow()
             return rendered_rows[row] if 0 <= row < len(rendered_rows) else None
+
+        def update_candidate_sort_status() -> None:
+            if sort_column is None:
+                candidate_sort_status.setText(
+                    "Candidate display order: default recommendation order — display order only; "
+                    "does not change recommendation evidence or score."
+                )
+                candidate_header.setSortIndicatorShown(False)
+                return
+            labels = {
+                CandidateSortColumn.HERO: "Hero",
+                CandidateSortColumn.EXPERIMENTAL_SCORE: "Experimental Score",
+                CandidateSortColumn.CONFIDENCE: "Confidence",
+                CandidateSortColumn.META: "Meta",
+                CandidateSortColumn.COUNTER: "Counter",
+                CandidateSortColumn.SYNERGY: "Synergy",
+                CandidateSortColumn.PERSONAL: "Personal",
+                CandidateSortColumn.WHY: "Why",
+            }
+            direction = "descending" if sort_descending else "ascending"
+            candidate_sort_status.setText(
+                f"Candidate display order: {labels[sort_column]} {direction} — display order only; "
+                "does not change recommendation evidence or score."
+            )
+            candidate_header.setSortIndicatorShown(True)
+            candidate_header.setSortIndicator(
+                int(sort_column),
+                Qt.SortOrder.DescendingOrder if sort_descending else Qt.SortOrder.AscendingOrder,
+            )
 
         def update_recommendation_explanation() -> None:
             row = selected_candidate_row()
@@ -373,6 +528,8 @@ def create_main_window(
                     item = QListWidgetItem(hero.localized_name or hero.canonical_name)
                     item.setData(Qt.UserRole, hero.hero_id)
                     widget.addItem(item)
+            update_composition_context()
+            sync_composition_controls()
             bundle = evidence_by_role.for_role(session.role)
             evidence_label.setText(
                 bundle.error
@@ -390,6 +547,8 @@ def create_main_window(
                 build_candidate_rows(session.candidates, personal_stats, recommendations),
                 search.text(),
             )
+            if sort_column is not None:
+                rows = sort_candidate_rows(rows, sort_column, sort_descending)
             rendered_rows[:] = rows
             candidates.setRowCount(len(rows))
             for index, row in enumerate(rows):
@@ -415,6 +574,21 @@ def create_main_window(
             else:
                 candidates.setCurrentCell(selected_index, 0)
             update_recommendation_explanation()
+            update_draft_action_controls()
+
+        def sort_candidates(section: int) -> None:
+            nonlocal sort_column, sort_descending
+            try:
+                selected_column = CandidateSortColumn(section)
+            except ValueError:
+                return
+            if sort_column is selected_column:
+                sort_descending = not sort_descending
+            else:
+                sort_column = selected_column
+                sort_descending = False
+            update_candidate_sort_status()
+            refresh()
 
         def set_pair_state(state: PairRefreshState, message: str | None) -> None:
             nonlocal pair_state
@@ -492,6 +666,8 @@ def create_main_window(
             )
 
         def chosen() -> Hero | None:
+            if not candidates.selectedItems():
+                return None
             row = selected_candidate_row()
             return row.hero if row is not None else None
 
@@ -499,53 +675,113 @@ def create_main_window(
             item = widget.currentItem()
             return hero_by_id.get(item.data(Qt.UserRole)) if item is not None else None
 
-        def apply(action: Callable[[Hero], None]) -> None:
+        draft_action_hint = "Select a candidate hero to add an ally, enemy, or ban."
+
+        def update_draft_action_controls(message: str | None = None) -> None:
+            nonlocal draft_action_hint
+            if message is not None:
+                draft_action_hint = message
+            hero = chosen()
+            ally_full = len(session.allies) >= 5
+            enemy_full = len(session.enemies) >= 5
+            add_ally.setEnabled(hero is not None and not ally_full)
+            add_enemy.setEnabled(hero is not None and not enemy_full)
+            ban.setEnabled(hero is not None)
+            remove_ally.setEnabled(allies.currentItem() is not None)
+            remove_enemy.setEnabled(enemies.currentItem() is not None)
+            unban.setEnabled(bans.currentItem() is not None)
+            reset.setEnabled(bool(session.allies or session.enemies or session.bans))
+            if ally_full:
+                hint = "Allied pick capacity is full. Remove an allied pick to continue."
+            elif enemy_full:
+                hint = "Enemy pick capacity is full. Remove an enemy pick to continue."
+            elif hero is None:
+                hint = "Select a candidate hero to add an ally, enemy, or ban."
+            else:
+                hint = draft_action_hint
+            draft_action_status.setText(
+                "Draft actions: "
+                f"allies {len(session.allies)} / 5 | enemies {len(session.enemies)} / 5 "
+                f"| bans {len(session.bans)} — {hint}"
+            )
+
+        def apply(action: Callable[[Hero], None], action_name: str) -> None:
             hero = chosen()
             if hero is None:
-                status.setText("Select a candidate hero first.")
-            else:
-                try:
-                    action(hero)
-                except ValueError as error:
-                    status.setText(str(error))
+                update_draft_action_controls("Select a candidate hero first.")
+                return
+            try:
+                action(hero)
+            except ValueError as error:
+                update_draft_action_controls(str(error))
+                return
             refresh()
+            update_draft_action_controls(
+                f"{action_name}: {hero.localized_name or hero.canonical_name}."
+            )
             trigger_pair_refresh()
 
-        def remove_from(widget: QListWidget, action: Callable[[Hero], None]) -> None:
+        def remove_from(
+            widget: QListWidget, action: Callable[[Hero], None], action_name: str
+        ) -> None:
             hero = selected_list_hero(widget)
             if hero is None:
-                status.setText("Select a hero from the list first.")
-            else:
+                update_draft_action_controls("Select a hero from the relevant list first.")
+                return
+            try:
                 action(hero)
+            except ValueError as error:
+                update_draft_action_controls(str(error))
+                return
             refresh()
+            update_draft_action_controls(
+                f"{action_name}: {hero.localized_name or hero.canonical_name}."
+            )
             trigger_pair_refresh()
 
-        add_ally.clicked.connect(lambda: apply(session.add_ally))
-        add_enemy.clicked.connect(lambda: apply(session.add_enemy))
-        ban.clicked.connect(lambda: apply(session.ban))
-        remove_ally.clicked.connect(lambda: remove_from(allies, session.remove_ally))
-        remove_enemy.clicked.connect(lambda: remove_from(enemies, session.remove_enemy))
-        unban.clicked.connect(lambda: remove_from(bans, session.unban))
+        add_ally.clicked.connect(lambda: apply(session.add_ally, "Added allied pick"))
+        add_enemy.clicked.connect(lambda: apply(session.add_enemy, "Added enemy pick"))
+        ban.clicked.connect(lambda: apply(session.ban, "Banned hero"))
+        remove_ally.clicked.connect(
+            lambda: remove_from(allies, session.remove_ally, "Removed allied pick")
+        )
+        remove_enemy.clicked.connect(
+            lambda: remove_from(enemies, session.remove_enemy, "Removed enemy pick")
+        )
+        unban.clicked.connect(lambda: remove_from(bans, session.unban, "Unbanned hero"))
 
         def reset_draft() -> None:
+            if not (session.allies or session.enemies or session.bans):
+                update_draft_action_controls("Draft is already empty.")
+                return
             session.clear()
             refresh()
+            update_draft_action_controls("Draft reset.")
             trigger_pair_refresh()
 
         def choose_role(role: Role, checked: bool) -> None:
-            if checked:
-                session.set_role(role)
-                refresh()
-                trigger_pair_refresh()
+            if not checked or session.role is role:
+                return
+            session.set_role(role)
+            refresh()
+            update_draft_action_controls("Role changed; draft context updated.")
+            trigger_pair_refresh()
 
         reset.clicked.connect(reset_draft)
         manual_refresh.clicked.connect(trigger_manual_pair_refresh)
+        save_composition.clicked.connect(save_ally_composition)
         configure_player.clicked.connect(save_player_account)
         clear_player.clicked.connect(clear_player_account)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
         five.toggled.connect(lambda checked: choose_role(Role.POSITION_5, checked))
         search.textChanged.connect(lambda _: refresh())
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
+        allies.itemSelectionChanged.connect(sync_composition_controls)
+        candidates.itemSelectionChanged.connect(update_draft_action_controls)
+        allies.itemSelectionChanged.connect(update_draft_action_controls)
+        enemies.itemSelectionChanged.connect(update_draft_action_controls)
+        bans.itemSelectionChanged.connect(update_draft_action_controls)
+        candidate_header.sectionClicked.connect(sort_candidates)
         if player_preferences is None:
             player_account_input.setEnabled(False)
             configure_player.setEnabled(False)
@@ -558,6 +794,7 @@ def create_main_window(
             if saved_account_id is not None:
                 player_account_input.setText(saved_account_id)
         refresh()
+        update_candidate_sort_status()
     else:
         for widget in (
             four,
@@ -570,6 +807,9 @@ def create_main_window(
             unban,
             reset,
             manual_refresh,
+            team_position_input,
+            planned_lane_input,
+            save_composition,
             player_account_input,
             configure_player,
             clear_player,

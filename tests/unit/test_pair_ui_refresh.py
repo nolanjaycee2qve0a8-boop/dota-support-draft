@@ -606,6 +606,8 @@ def test_recommendation_explanation_tracks_selection_and_search_without_pair_net
 
     search.setText("Hero 2")
     app.processEvents()
+    assert panel.toPlainText() == "Select a candidate hero to inspect its evidence."
+    table.selectRow(0)
     assert "Candidate: Hero 2" in panel.toPlainText()
     assert service.calls == 0
     window.close()
@@ -660,8 +662,13 @@ def test_recommendation_explanation_uses_current_role_and_discards_pair_error_on
     _button(window, "Add Enemy").click()
     _wait(
         app,
-        lambda: "Counter: unavailable (counter offline)" in _explanation(window).toPlainText(),
+        lambda: (
+            "Counter: unavailable (counter offline)"
+            in _label(window, "pair-refresh-coverage").text()
+        ),
     )
+    assert panel.toPlainText() == "Select a candidate hero to inspect its evidence."
+    table.selectRow(0)
     assert "Counter: unavailable — fixed weight contributes neutral zero" in panel.toPlainText()
     assert "Why:" in panel.toPlainText()
 
@@ -670,6 +677,101 @@ def test_recommendation_explanation_uses_current_role_and_discards_pair_error_on
     assert "Pair coverage: no related picks" in panel.toPlainText()
     assert "counter offline" not in panel.toPlainText()
     assert "Counter: unavailable — fixed weight contributes neutral zero" in panel.toPlainText()
+    window.close()
+
+
+def test_candidate_table_sorting_preserves_visible_selection_without_pair_work() -> None:
+    """Header sorting is local display state and retains a selected visible candidate."""
+    app = QApplication.instance() or QApplication([])
+    heroes = (
+        Hero(1, "zulu", "Zulu"),
+        Hero(2, "bravo", "Bravo"),
+        Hero(3, "alpha", "Alpha"),
+    )
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit)
+    sort_status = _label(window, "candidate-sort-status")
+    assert table is not None and search is not None and window.pair_refresh_controller is not None
+    controller = window.pair_refresh_controller
+    assert [table.item(index, 0).text() for index in range(table.rowCount())] == [
+        "Alpha",
+        "Bravo",
+        "Zulu",
+    ]
+    table.selectRow(1)
+    assert "Candidate: Bravo" in _explanation(window).toPlainText()
+
+    table.horizontalHeader().sectionClicked.emit(0)
+    app.processEvents()
+    assert table.item(0, 0) is not None and table.item(0, 0).text() == "Alpha"
+    assert "Hero ascending" in sort_status.text()
+    assert "Candidate: Bravo" in _explanation(window).toPlainText()
+
+    table.horizontalHeader().sectionClicked.emit(0)
+    app.processEvents()
+    assert table.item(0, 0) is not None and table.item(0, 0).text() == "Zulu"
+    assert "Hero descending" in sort_status.text()
+    assert "Candidate: Bravo" in _explanation(window).toPlainText()
+
+    search.setText("Alpha")
+    app.processEvents()
+    assert _explanation(window).toPlainText() == "Select a candidate hero to inspect its evidence."
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    window.close()
+
+
+def test_candidate_sorting_survives_role_and_pair_overlay_refreshes() -> None:
+    """A local sort persists across semantic rerenders without adding pair work itself."""
+    app = QApplication.instance() or QApplication([])
+    heroes = (
+        Hero(1, "zulu", "Zulu"),
+        Hero(2, "bravo", "Bravo"),
+        Hero(3, "alpha", "Alpha"),
+        Hero(4, "delta", "Delta"),
+    )
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_enemy(heroes[0])
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    assert table is not None and manual is not None
+    table.selectRow(1)
+    selected_hero = table.item(1, 0)
+    assert selected_hero is not None
+    selected_name = selected_hero.text()
+    manual.click()
+    _wait(app, lambda: service.calls == 1)
+    _wait(
+        app,
+        lambda: "Counter: available" in _label(window, "pair-refresh-coverage").text(),
+    )
+
+    table.horizontalHeader().sectionClicked.emit(0)
+    app.processEvents()
+    assert f"Candidate: {selected_name}" in _explanation(window).toPlainText()
+    assert service.calls == 1
+
+    radios = {radio.text(): radio for radio in window.findChildren(QRadioButton)}
+    radios["Position 5"].click()
+    _wait(app, lambda: service.calls == 2)
+    assert f"Candidate: {selected_name}" in _explanation(window).toPlainText()
     window.close()
 
 
@@ -711,3 +813,119 @@ def test_manual_refresh_is_disabled_without_related_picks_or_shortlist() -> None
     app.processEvents()
     assert service.calls == 0
     no_shortlist.close()
+
+
+def test_draft_action_guardrails_show_capacity_and_keep_invalid_clicks_local() -> None:
+    """Disabled or invalid draft actions never advance the pair-refresh controller."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 8))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=10_000,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    status = _label(window, "draft-action-status")
+    add_ally = window.findChild(QPushButton, "add-ally")
+    remove_ally = window.findChild(QPushButton, "remove-ally")
+    reset = window.findChild(QPushButton, "reset-draft")
+    assert (
+        table is not None and add_ally is not None and remove_ally is not None and reset is not None
+    )
+    assert "allies 0 / 5 | enemies 0 / 5 | bans 0" in status.text()
+    assert not add_ally.isEnabled() and not remove_ally.isEnabled() and not reset.isEnabled()
+    add_ally.click()
+    remove_ally.click()
+    reset.click()
+    app.processEvents()
+    assert service.calls == 0
+
+    for _ in range(5):
+        table.selectRow(0)
+        assert add_ally.isEnabled()
+        add_ally.click()
+
+    controller = window.pair_refresh_controller
+    assert controller is not None
+    generation_after_valid_adds = controller.generation
+    assert not add_ally.isEnabled()
+    assert "allies 5 / 5" in status.text()
+    assert "capacity is full" in status.text()
+    add_ally.click()
+    remove_ally.click()
+    app.processEvents()
+    assert service.calls == 0
+    assert controller.generation == generation_after_valid_adds
+    assert controller.active_thread is None and controller.findChildren(QThread) == []
+    window.close()
+
+
+def test_bans_over_five_remain_legal_and_do_not_create_pair_work() -> None:
+    """The guardrail reports ban count without imposing an unapproved draft cap."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 8))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    ban = window.findChild(QPushButton, "ban-hero")
+    status = _label(window, "draft-action-status")
+    assert table is not None and ban is not None
+    for _ in range(6):
+        table.selectRow(0)
+        assert ban.isEnabled()
+        ban.click()
+    controller = window.pair_refresh_controller
+    assert controller is not None
+    app.processEvents()
+    assert "bans 6" in status.text()
+    assert service.calls == 0
+    assert controller.active_thread is None and controller.findChildren(QThread) == []
+    window.close()
+
+
+def test_only_a_successful_draft_mutation_schedules_pair_refresh() -> None:
+    """A valid add schedules once; unselected actions do not create another worker."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget)
+    add_ally = window.findChild(QPushButton, "add-ally")
+    remove_ally = window.findChild(QPushButton, "remove-ally")
+    assert table is not None and add_ally is not None and remove_ally is not None
+    table.selectRow(0)
+    add_ally.click()
+    _wait(app, lambda: service.calls == 1)
+    controller = window.pair_refresh_controller
+    assert controller is not None
+    _wait(app, lambda: controller.active_thread is None)
+    generation_after_add = controller.generation
+
+    table.clearSelection()
+    app.processEvents()
+    assert not add_ally.isEnabled() and not remove_ally.isEnabled()
+    add_ally.click()
+    remove_ally.click()
+    app.processEvents()
+    assert service.calls == 1
+    assert controller.generation == generation_after_add
+    assert controller.active_thread is None and controller.findChildren(QThread) == []
+    window.close()

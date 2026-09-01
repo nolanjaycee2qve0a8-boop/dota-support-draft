@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 
 from dota_support_draft.domain import Hero, PersonalHeroStat
 from dota_support_draft.scoring import ExperimentalRecommendation
@@ -21,6 +22,57 @@ class CandidateRow:
     @property
     def display_name(self) -> str:
         return self.hero.localized_name or self.hero.canonical_name
+
+
+class CandidateSortColumn(IntEnum):
+    """Candidate table columns with type-aware, local display-order semantics."""
+
+    HERO = 0
+    EXPERIMENTAL_SCORE = 1
+    CONFIDENCE = 2
+    META = 3
+    COUNTER = 4
+    SYNERGY = 5
+    PERSONAL = 6
+    WHY = 7
+
+
+def sort_candidate_rows(
+    rows: tuple[CandidateRow, ...], column: CandidateSortColumn, descending: bool = False
+) -> tuple[CandidateRow, ...]:
+    """Sort local display rows; unavailable numeric evidence is always last and ties stay stable."""
+
+    def component(row: CandidateRow, name: str) -> float | None:
+        return dict(row.experimental_components).get(name)
+
+    def value(row: CandidateRow) -> str | float | None:
+        match column:
+            case CandidateSortColumn.HERO:
+                return row.display_name.casefold()
+            case CandidateSortColumn.EXPERIMENTAL_SCORE:
+                return row.experimental_score
+            case CandidateSortColumn.CONFIDENCE:
+                return row.evidence_confidence
+            case CandidateSortColumn.META:
+                return component(row, "meta")
+            case CandidateSortColumn.COUNTER:
+                return component(row, "counter")
+            case CandidateSortColumn.SYNERGY:
+                return component(row, "synergy")
+            case CandidateSortColumn.PERSONAL:
+                return component(row, "personal")
+            case CandidateSortColumn.WHY:
+                return (row.explanation or row.status).casefold()
+
+    available = [row for row in rows if value(row) is not None]
+    unavailable = [row for row in rows if value(row) is None]
+
+    def available_value(row: CandidateRow) -> str | float:
+        result = value(row)
+        assert result is not None
+        return result
+
+    return tuple(sorted(available, key=available_value, reverse=descending) + unavailable)
 
 
 def format_optional_count(value: int | None) -> str:

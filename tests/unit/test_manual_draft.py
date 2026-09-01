@@ -48,6 +48,12 @@ def test_max_removal_unban_and_search(session, heroes) -> None:
     )
 
 
+def test_bans_are_not_capacity_limited(session, heroes) -> None:
+    for hero in heroes[:6]:
+        session.ban(hero)
+    assert session.bans == set(heroes[:6])
+
+
 def test_personal_history_orders_without_role_claim(session, heroes, provenance) -> None:
     stats = (PersonalHeroStat(heroes[1], 10, 6, 0.6, None, provenance),)
     row = build_candidate_rows(heroes, stats)[0]

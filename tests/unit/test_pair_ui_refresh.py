@@ -1080,6 +1080,112 @@ def test_candidate_keyboard_search_table_and_comparison_are_local_only() -> None
     window.close()
 
 
+def test_local_candidate_display_matrix_has_no_draft_or_pair_side_effects() -> None:
+    """Presentation-only candidate controls preserve draft, canonical evidence, and pair state."""
+    app = QApplication.instance() or QApplication([])
+    heroes = (
+        Hero(1, "zulu", "Zulu"),
+        Hero(2, "bravo", "Bravo"),
+        Hero(3, "alpha", "Alpha"),
+    )
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit, "candidate-search")
+    clear_search = window.findChild(QPushButton, "candidate-search-clear")
+    add = window.findChild(QPushButton, "add-candidate-comparison")
+    remove = window.findChild(QPushButton, "remove-candidate-comparison")
+    clear_comparison = window.findChild(QPushButton, "clear-candidate-comparison")
+    comparison = window.findChild(QTextEdit, "candidate-comparison-slot-1")
+    controller = window.pair_refresh_controller
+    assert (
+        table is not None
+        and search is not None
+        and clear_search is not None
+        and add is not None
+        and remove is not None
+        and clear_comparison is not None
+        and comparison is not None
+        and controller is not None
+    )
+
+    def displayed_values() -> dict[str, tuple[str, ...]]:
+        return {
+            table.item(index, 0).text(): tuple(
+                table.item(index, column).text() for column in range(1, table.columnCount())
+            )
+            for index in range(table.rowCount())
+        }
+
+    initial_draft = session.to_draft_state()
+    initial_values = displayed_values()
+    initial_pair_context = _label(window, "pair-refresh-context").text()
+
+    def assert_local_only() -> None:
+        """Every matrix action may alter display state, never semantic input or pair work."""
+        assert session.to_draft_state() == initial_draft
+        assert _label(window, "pair-refresh-context").text() == initial_pair_context
+        assert all(initial_values[name] == values for name, values in displayed_values().items())
+        assert service.calls == 0
+        assert controller.generation == 0
+        assert controller.active_thread is None
+        assert controller.findChildren(QThread) == []
+
+    # Typed filtering and its explicit clear only alter the local visible subset.
+    window.activateWindow()
+    QTest.keyClick(window, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClicks(search, "Bravo")
+    app.processEvents()
+    assert table.rowCount() == 1 and table.item(0, 0).text() == "Bravo"
+    assert_local_only()
+    clear_search.click()
+    app.processEvents()
+    assert search.text() == "" and table.rowCount() == len(initial_values)
+    assert_local_only()
+
+    # Sorting and selection re-order or explain existing rows without changing canonical evidence.
+    table.horizontalHeader().sectionClicked.emit(0)
+    table.selectRow(1)
+    app.processEvents()
+    assert "Candidate: Bravo" in _explanation(window).toPlainText()
+    assert_local_only()
+
+    # Comparison add/remove/clear consumes the selected local row only.
+    add.click()
+    assert "Bravo" in comparison.toPlainText()
+    assert_local_only()
+    remove.click()
+    assert "Empty comparison slot" in comparison.toPlainText()
+    assert_local_only()
+    add.click()
+    clear_comparison.click()
+    assert "Empty comparison slot" in comparison.toPlainText()
+    assert_local_only()
+
+    # Keyboard focus and arrow navigation remain within search/table presentation state.
+    QTest.keyClick(window, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClicks(search, "Bravo")
+    QTest.keyClick(search, Qt.Key.Key_Return)
+    assert table.hasFocus() and table.currentRow() == 0
+    QTest.keyClick(table, Qt.Key.Key_Down)
+    QTest.keyClick(table, Qt.Key.Key_Up)
+    QTest.keyClick(window, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(search, Qt.Key.Key_Escape)
+    app.processEvents()
+    assert search.text() == "" and search.hasFocus()
+    assert "Candidate: Bravo" in _explanation(window).toPlainText()
+    assert_local_only()
+    window.close()
+
+
 def test_candidate_table_focus_and_selection_survive_pair_result_rerender() -> None:
     """A pair result preserves a legal table selection and table focus for arrow navigation."""
     app = QApplication.instance() or QApplication([])

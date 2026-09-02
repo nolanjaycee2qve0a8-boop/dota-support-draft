@@ -2,7 +2,7 @@ import json
 import time
 from datetime import UTC, date, datetime
 
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QThread, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -229,13 +229,14 @@ def test_resizable_content_layout_preserves_controls_without_pair_work() -> None
     assert splitter is not None
     assert composition is not None
     assert table is not None
-    assert splitter.count() == 4
-    assert all(size > 0 for size in splitter.sizes())
+    assert splitter.count() == 5
+    assert splitter.sizes()[0] == 0
+    assert all(size > 0 for size in splitter.sizes()[1:])
     assert composition.isVisible() and table.isVisible() and explanation.isVisible()
     assert comparison is not None and comparison.isVisible()
     assert table.viewport().height() >= 120
 
-    splitter.setSizes([100, 320, 140, 170])
+    splitter.setSizes([0, 100, 320, 140, 170])
     window.resize(920, 680)
     app.processEvents()
     assert table.viewport().height() >= 100
@@ -1268,6 +1269,87 @@ def test_close_with_pending_import_preview_keeps_pair_shutdown_cooperative() -> 
     )
     assert session.to_draft_state() == original
     assert service.calls == 1 and controller.findChildren(QThread) == []
+
+
+def test_manual_import_layout_is_collapsed_and_keeps_draft_controls_accessible() -> None:
+    """The low-frequency import panel cannot overlap or consume the draft workspace by default."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.resize(1920, 1080)
+    window.show()
+    entry = window.findChild(QWidget, "manual-import-entry")
+    panel = window.findChild(QWidget, "manual-import-section")
+    toggle = window.findChild(QPushButton, "toggle-manual-import")
+    text = window.findChild(QTextEdit, "manual-import-text")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    cancel = window.findChild(QPushButton, "cancel-manual-import")
+    candidates = window.findChild(QTableWidget, "candidate-table")
+    allies = window.findChild(QListWidget, "allied-picks")
+    save_context = window.findChild(QPushButton, "save-ally-composition")
+    controller = window.pair_refresh_controller
+    assert (
+        entry is not None
+        and panel is not None
+        and toggle is not None
+        and text is not None
+        and validate is not None
+        and cancel is not None
+        and candidates is not None
+        and allies is not None
+        and save_context is not None
+        and controller is not None
+    )
+
+    def bounds(widget: QWidget) -> QRect:
+        return QRect(widget.mapTo(window, QPoint(0, 0)), widget.size())
+
+    def assert_accessible(expanded: bool) -> None:
+        app.processEvents()
+        for widget in (entry, candidates, allies, save_context):
+            assert widget.isVisible() and widget.width() > 0 and widget.height() > 0
+        assert candidates.viewport().height() > 0
+        assert not bounds(entry).intersects(bounds(candidates))
+        assert not bounds(allies).intersects(bounds(candidates))
+        assert panel.isVisible() is expanded
+        if expanded:
+            assert not bounds(panel).intersects(bounds(candidates))
+
+    assert_accessible(False)
+    window.resize(900, 700)
+    assert_accessible(False)
+    toggle.click()
+    assert_accessible(True)
+    text.setPlainText(
+        json.dumps(
+            {
+                "schema_version": "dota-support-draft/manual-import/v1",
+                "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "2026-09-02T00:00:00Z"},
+                "draft": {
+                    "complete": True,
+                    "patch_version": "7.40",
+                    "intended_role": "POSITION_4",
+                    "allied_hero_ids": [],
+                    "enemy_hero_ids": [],
+                    "banned_hero_ids": [],
+                },
+            }
+        )
+    )
+    validate.click()
+    assert not toggle.isEnabled() and candidates.viewport().height() > 0
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    cancel.click()
+    assert not toggle.isChecked()
+    assert_accessible(False)
+    window.close()
 
 
 def test_local_candidate_display_matrix_has_no_draft_or_pair_side_effects() -> None:

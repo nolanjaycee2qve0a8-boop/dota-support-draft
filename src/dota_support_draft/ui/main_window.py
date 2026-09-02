@@ -185,7 +185,19 @@ def create_main_window(
     manual_import_layout.addWidget(manual_import_text)
     manual_import_layout.addWidget(manual_import_preview)
     manual_import_layout.addLayout(manual_import_controls)
-    layout.addWidget(manual_import_section)
+    manual_import_entry = QWidget()
+    manual_import_entry.setObjectName("manual-import-entry")
+    manual_import_entry_layout = QHBoxLayout(manual_import_entry)
+    manual_import_entry_layout.setContentsMargins(0, 0, 0, 0)
+    manual_import_entry_layout.addWidget(
+        QLabel("Manual draft import — pasted JSON only; low-frequency workflow.")
+    )
+    toggle_import = QPushButton("Show import")
+    toggle_import.setObjectName("toggle-manual-import")
+    toggle_import.setCheckable(True)
+    toggle_import.setToolTip("Show the pasted MANUAL_IMPORT/v1 preview and confirmation controls.")
+    manual_import_entry_layout.addWidget(toggle_import)
+    layout.addWidget(manual_import_entry)
     composition_panel = QTextEdit()
     composition_panel.setObjectName("composition-context")
     composition_panel.setReadOnly(True)
@@ -386,6 +398,7 @@ def create_main_window(
     comparison_layout.addWidget(comparison_status)
     comparison_layout.addLayout(comparison_controls)
     comparison_layout.addLayout(comparison_cards)
+    content_splitter.addWidget(manual_import_section)
     content_splitter.addWidget(composition_section)
     content_splitter.addWidget(candidate_section)
     content_splitter.addWidget(explanation_panel)
@@ -393,10 +406,12 @@ def create_main_window(
     for index in range(content_splitter.count()):
         content_splitter.setCollapsible(index, False)
     content_splitter.setStretchFactor(0, 1)
-    content_splitter.setStretchFactor(1, 5)
-    content_splitter.setStretchFactor(2, 2)
+    content_splitter.setStretchFactor(1, 1)
+    content_splitter.setStretchFactor(2, 5)
     content_splitter.setStretchFactor(3, 2)
-    content_splitter.setSizes([120, 330, 150, 180])
+    content_splitter.setStretchFactor(4, 2)
+    manual_import_section.setVisible(False)
+    content_splitter.setSizes([0, 120, 330, 150, 180])
     layout.addWidget(content_splitter, 1)
     if session is not None:
         rendered_rows: list[CandidateRow] = []
@@ -414,12 +429,21 @@ def create_main_window(
         pending_import: ManualImportAssessment | None = None
         last_confirmed_import_time = None
 
-        def clear_import_preview(message: str) -> None:
+        def set_import_expanded(expanded: bool) -> None:
+            manual_import_section.setVisible(expanded)
+            toggle_import.setText("Hide import" if expanded else "Show import")
+            if expanded:
+                content_splitter.setSizes([210, 120, 280, 150, 180])
+
+        def clear_import_preview(message: str, *, collapse: bool = False) -> None:
             nonlocal pending_import
             pending_import = None
             confirm_import.setEnabled(False)
             cancel_import.setEnabled(False)
+            toggle_import.setEnabled(True)
             manual_import_preview.setText(message)
+            if collapse:
+                toggle_import.setChecked(False)
 
         def describe_import_preview(assessment: ManualImportAssessment) -> str:
             assert assessment.draft is not None
@@ -457,6 +481,7 @@ def create_main_window(
             pending_import = assessment
             confirm_import.setEnabled(True)
             cancel_import.setEnabled(True)
+            toggle_import.setEnabled(False)
             manual_import_preview.setText(describe_import_preview(assessment))
 
         def confirm_manual_import() -> None:
@@ -478,7 +503,8 @@ def create_main_window(
             update_draft_action_controls("Imported draft confirmed; manual ally context cleared.")
             clear_import_preview(
                 "Import confirmed: current picks, bans, and role were replaced. "
-                "Manual ally position/lane context was cleared."
+                "Manual ally position/lane context was cleared.",
+                collapse=True,
             )
             trigger_pair_refresh()
 
@@ -1229,7 +1255,9 @@ def create_main_window(
         save_composition.clicked.connect(save_ally_composition)
         validate_import.clicked.connect(preview_manual_import)
         cancel_import.clicked.connect(
-            lambda: clear_import_preview("Import preview cancelled. Current draft unchanged.")
+            lambda: clear_import_preview(
+                "Import preview cancelled. Current draft unchanged.", collapse=True
+            )
         )
         confirm_import.clicked.connect(confirm_manual_import)
         configure_player.clicked.connect(save_player_account)
@@ -1240,6 +1268,7 @@ def create_main_window(
         clear_search.clicked.connect(clear_candidate_search)
         search.returnPressed.connect(focus_candidate_table)
         manual_import_text.textChanged.connect(invalidate_import_preview_for_text_change)
+        toggle_import.toggled.connect(set_import_expanded)
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
         candidates.itemSelectionChanged.connect(update_comparison_controls)
         allies.itemSelectionChanged.connect(sync_composition_controls)
@@ -1289,6 +1318,7 @@ def create_main_window(
             validate_import,
             cancel_import,
             confirm_import,
+            toggle_import,
         ):
             widget.setEnabled(False)
     window.setCentralWidget(contents)

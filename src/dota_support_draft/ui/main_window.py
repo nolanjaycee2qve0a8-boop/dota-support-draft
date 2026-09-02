@@ -43,9 +43,11 @@ from dota_support_draft.draft import (
     CandidateSortColumn,
     DraftPairEvidenceService,
     ManualDraftSession,
+    ManualImportAssessment,
     PairEvidenceContext,
     PairEvidenceInput,
     PairEvidenceResult,
+    assess_pasted_manual_import,
     build_candidate_rows,
     filter_candidates,
     format_optional_rate,
@@ -148,6 +150,42 @@ def create_main_window(
         column.addWidget(widget)
         lists.addLayout(column)
     layout.addLayout(lists)
+    manual_import_section = QWidget()
+    manual_import_section.setObjectName("manual-import-section")
+    manual_import_layout = QVBoxLayout(manual_import_section)
+    manual_import_layout.setContentsMargins(0, 0, 0, 0)
+    manual_import_layout.addWidget(
+        QLabel("Manual draft import — pasted JSON only; never auto-detected.")
+    )
+    manual_import_text = QTextEdit()
+    manual_import_text.setObjectName("manual-import-text")
+    manual_import_text.setAcceptRichText(False)
+    manual_import_text.setPlaceholderText(
+        "Paste a MANUAL_IMPORT/v1 JSON document, then choose Validate / Preview."
+    )
+    manual_import_text.setMinimumHeight(88)
+    manual_import_text.setMaximumHeight(150)
+    manual_import_preview = QLabel(
+        "Paste a complete MANUAL_IMPORT/v1 document to preview it. The current draft is unchanged."
+    )
+    manual_import_preview.setObjectName("manual-import-preview")
+    manual_import_preview.setWordWrap(True)
+    validate_import = QPushButton("Validate / Preview import")
+    validate_import.setObjectName("validate-manual-import")
+    cancel_import = QPushButton("Cancel import preview")
+    cancel_import.setObjectName("cancel-manual-import")
+    cancel_import.setEnabled(False)
+    confirm_import = QPushButton("Confirm and replace draft")
+    confirm_import.setObjectName("confirm-manual-import")
+    confirm_import.setEnabled(False)
+    manual_import_controls = QHBoxLayout()
+    manual_import_controls.addWidget(validate_import)
+    manual_import_controls.addWidget(cancel_import)
+    manual_import_controls.addWidget(confirm_import)
+    manual_import_layout.addWidget(manual_import_text)
+    manual_import_layout.addWidget(manual_import_preview)
+    manual_import_layout.addLayout(manual_import_controls)
+    layout.addWidget(manual_import_section)
     composition_panel = QTextEdit()
     composition_panel.setObjectName("composition-context")
     composition_panel.setReadOnly(True)
@@ -373,6 +411,86 @@ def create_main_window(
         sort_descending = False
         comparison_hero_ids: list[int] = []
         comparison_rows_by_id: dict[int, CandidateRow] = {}
+        pending_import: ManualImportAssessment | None = None
+        last_confirmed_import_time = None
+
+        def clear_import_preview(message: str) -> None:
+            nonlocal pending_import
+            pending_import = None
+            confirm_import.setEnabled(False)
+            cancel_import.setEnabled(False)
+            manual_import_preview.setText(message)
+
+        def describe_import_preview(assessment: ManualImportAssessment) -> str:
+            assert assessment.draft is not None
+            draft = assessment.draft
+            role_text = "Position 4" if draft.intended_role is Role.POSITION_4 else "Position 5"
+            observed_text = (
+                "observed time unknown — explicit review required"
+                if assessment.observed_at is None
+                else f"observed at {assessment.observed_at.isoformat()}"
+            )
+            return (
+                f"Import preview: role {role_text}; allies {len(draft.allied_picks)} "
+                f"(current {len(session.allies)}); enemies {len(draft.enemy_picks)} "
+                f"(current {len(session.enemies)}); bans {len(draft.banned_heroes)} "
+                f"(current {len(session.bans)}); {observed_text}. "
+                "Confirm atomically replaces picks, bans, and role. "
+                "MANUAL_IMPORT/v1 has no ally position/lane fields, so confirmation clears "
+                "all existing manual ally composition assignments."
+            )
+
+        def preview_manual_import() -> None:
+            nonlocal pending_import
+            assessment = assess_pasted_manual_import(
+                manual_import_text.toPlainText(),
+                session.heroes,
+                session.patch,
+                last_confirmed_import_time,
+            )
+            if not assessment.can_confirm:
+                clear_import_preview(
+                    "Import rejected: "
+                    f"{assessment.issue or 'invalid document'}. Current draft unchanged."
+                )
+                return
+            pending_import = assessment
+            confirm_import.setEnabled(True)
+            cancel_import.setEnabled(True)
+            manual_import_preview.setText(describe_import_preview(assessment))
+
+        def confirm_manual_import() -> None:
+            nonlocal last_confirmed_import_time
+            assessment = pending_import
+            if assessment is None or not assessment.can_confirm or assessment.draft is None:
+                clear_import_preview("No valid import preview is available to confirm.")
+                return
+            try:
+                session.replace_from_manual_import(assessment.draft)
+            except ValueError:
+                clear_import_preview("Import could not be applied. Current draft unchanged.")
+                return
+            if assessment.observed_at is not None:
+                last_confirmed_import_time = assessment.observed_at
+            four.setChecked(session.role is Role.POSITION_4)
+            five.setChecked(session.role is Role.POSITION_5)
+            refresh()
+            update_draft_action_controls("Imported draft confirmed; manual ally context cleared.")
+            clear_import_preview(
+                "Import confirmed: current picks, bans, and role were replaced. "
+                "Manual ally position/lane context was cleared."
+            )
+            trigger_pair_refresh()
+
+        def invalidate_import_preview_for_draft_change() -> None:
+            if pending_import is not None:
+                clear_import_preview(
+                    "Draft changed; validate the pasted document again before confirming."
+                )
+
+        def invalidate_import_preview_for_text_change() -> None:
+            if pending_import is not None:
+                clear_import_preview("Pasted text changed; validate it again before confirming.")
 
         def update_composition_context() -> None:
             assignments = session.to_draft_state().allied_picks
@@ -1047,6 +1165,7 @@ def create_main_window(
             except ValueError as error:
                 update_draft_action_controls(str(error))
                 return
+            invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls(
                 f"{action_name}: {hero.localized_name or hero.canonical_name}."
@@ -1065,6 +1184,7 @@ def create_main_window(
             except ValueError as error:
                 update_draft_action_controls(str(error))
                 return
+            invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls(
                 f"{action_name}: {hero.localized_name or hero.canonical_name}."
@@ -1087,6 +1207,7 @@ def create_main_window(
                 update_draft_action_controls("Draft is already empty.")
                 return
             session.clear()
+            invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls("Draft reset.")
             trigger_pair_refresh()
@@ -1095,6 +1216,7 @@ def create_main_window(
             if not checked or session.role is role:
                 return
             session.set_role(role)
+            invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls("Role changed; draft context updated.")
             trigger_pair_refresh()
@@ -1105,6 +1227,11 @@ def create_main_window(
         remove_comparison.clicked.connect(remove_selected_from_comparison)
         clear_comparison_button.clicked.connect(clear_comparison)
         save_composition.clicked.connect(save_ally_composition)
+        validate_import.clicked.connect(preview_manual_import)
+        cancel_import.clicked.connect(
+            lambda: clear_import_preview("Import preview cancelled. Current draft unchanged.")
+        )
+        confirm_import.clicked.connect(confirm_manual_import)
         configure_player.clicked.connect(save_player_account)
         clear_player.clicked.connect(clear_player_account)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
@@ -1112,6 +1239,7 @@ def create_main_window(
         search.textChanged.connect(lambda _: refresh())
         clear_search.clicked.connect(clear_candidate_search)
         search.returnPressed.connect(focus_candidate_table)
+        manual_import_text.textChanged.connect(invalidate_import_preview_for_text_change)
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
         candidates.itemSelectionChanged.connect(update_comparison_controls)
         allies.itemSelectionChanged.connect(sync_composition_controls)
@@ -1157,6 +1285,10 @@ def create_main_window(
             add_comparison,
             remove_comparison,
             clear_comparison_button,
+            manual_import_text,
+            validate_import,
+            cancel_import,
+            confirm_import,
         ):
             widget.setEnabled(False)
     window.setCentralWidget(contents)

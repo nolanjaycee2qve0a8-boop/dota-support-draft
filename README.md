@@ -38,6 +38,8 @@ DOTA-027 adds a local candidate-comparison panel. Add up to three current legal 
 
 DOTA-031 improves keyboard access to the local candidate display: `Ctrl+F` focuses search, `Escape` clears it while search is focused, `Enter` moves to the candidate table, and arrow keys move the table selection. These controls only filter or select already calculated candidates; they never add picks/bans, request data, or change recommendation evidence.
 
+DOTA-033 adds an explicit manual draft-import flow for pasted `MANUAL_IMPORT/v1` JSON only. Validate/Preview never changes the current draft; Cancel remains inert; only Confirm atomically replaces picks, bans, and P4/P5 role. The v1 input has no ally position/lane fields, so confirmation clearly warns and clears existing manual ally context. This is not file input, GSI, auto-detection, or a network source.
+
 ## Windows local Token launch
 
 From the project root, run:

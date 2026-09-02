@@ -1,5 +1,11 @@
 """Manual and future automated collection adapters feed the same DraftState model."""
 
+from .manual_import import (
+    MANUAL_IMPORT_SCHEMA_VERSION,
+    ManualImportAssessment,
+    ManualImportStatus,
+    assess_pasted_manual_import,
+)
 from .pair_evidence import (
     PAIR_SHORTLIST_SIZE,
     DraftPairEvidenceService,
@@ -26,12 +32,16 @@ __all__ = [
     "CandidateSortColumn",
     "ManualDraftError",
     "ManualDraftSession",
+    "MANUAL_IMPORT_SCHEMA_VERSION",
+    "ManualImportAssessment",
+    "ManualImportStatus",
     "PAIR_SHORTLIST_SIZE",
     "DraftPairEvidenceService",
     "PairEvidenceContext",
     "PairEvidenceInput",
     "PairEvidenceResult",
     "build_candidate_rows",
+    "assess_pasted_manual_import",
     "filter_candidates",
     "format_optional_count",
     "format_optional_rate",

@@ -119,10 +119,14 @@ def create_main_window(
     pair_context_label.setObjectName("pair-refresh-context")
     pair_coverage_label = QLabel("Pair coverage: Meta/Personal only; no pair enrichment")
     pair_coverage_label.setObjectName("pair-refresh-coverage")
+    pair_action_label = QLabel("Pair action: Meta/Personal remain available without pair evidence.")
+    pair_action_label.setObjectName("pair-refresh-action")
+    pair_action_label.setWordWrap(True)
     layout.addWidget(evidence_label)
     layout.addWidget(pair_label)
     layout.addWidget(pair_context_label)
     layout.addWidget(pair_coverage_label)
+    layout.addWidget(pair_action_label)
     if stratz_freshness_warning:
         layout.addWidget(QLabel(stratz_freshness_warning))
     role_row = QHBoxLayout()
@@ -680,6 +684,102 @@ def create_main_window(
                 + ". Meta/Personal remain available without pair enrichment."
             )
 
+        def update_pair_actionability() -> None:
+            """Explain existing pair state locally; never schedule or retry work."""
+            input_data = pair_input()
+            context = input_data.context
+            requested = (
+                ("Counter", bool(context.enemy_ids)),
+                ("Synergy", bool(context.ally_ids)),
+            )
+            if pair_service is None:
+                pair_action_label.setText(
+                    "Pair action: The STRATZ pair-refresh service is unavailable in this session. "
+                    "Meta/Personal remain available without pair evidence."
+                )
+                return
+            if pair_state is PairRefreshState.SHUTTING_DOWN:
+                pair_action_label.setText(
+                    "Pair action: Finishing the current pair refresh before closing; "
+                    "no further refresh can be started."
+                )
+                return
+            if not (context.ally_ids or context.enemy_ids):
+                pair_action_label.setText(
+                    "Pair action: Add an allied or enemy pick before pair evidence can run. "
+                    "Meta/Personal remain available; no pair refresh is requested."
+                )
+                return
+            if not input_data.shortlist:
+                pair_action_label.setText(
+                    "Pair action: No legal shortlist is available for this draft. "
+                    "Meta/Personal remain available; pair refresh cannot run."
+                )
+                return
+            if pair_state in (PairRefreshState.DEBOUNCING, PairRefreshState.LOADING):
+                pair_action_label.setText(
+                    "Pair action: Updating evidence for this context. Wait for completion, "
+                    "or use Refresh pair evidence to queue one latest retry. "
+                    "Meta/Personal remain available."
+                )
+                return
+            current_result = (
+                latest_pair_result
+                if latest_pair_result is not None and latest_pair_result.context == context
+                else None
+            )
+            errors = {
+                "Counter": current_result.counter_error if current_result else None,
+                "Synergy": current_result.synergy_error if current_result else None,
+            }
+            unavailable = [name for name, enabled in requested if enabled and errors[name]]
+            available = [name for name, enabled in requested if enabled and name not in unavailable]
+
+            def names(items: list[str]) -> str:
+                if len(items) == 2:
+                    return " and ".join(items)
+                return items[0]
+
+            def verb(items: list[str]) -> str:
+                return "are" if len(items) == 2 else "is"
+
+            retry = (
+                "Use Refresh pair evidence to retry/recalculate this context; it may use existing "
+                "caches and does not force an HTTP request."
+            )
+            if unavailable:
+                unavailable_text = names(unavailable)
+                if available:
+                    pair_action_label.setText(
+                        f"Pair action: {unavailable_text} {verb(unavailable)} unavailable; "
+                        f"{names(available)} {verb(available)} still available. {retry} "
+                        "Meta/Personal remain available."
+                    )
+                else:
+                    pair_action_label.setText(
+                        f"Pair action: {unavailable_text} {verb(unavailable)} unavailable for this "
+                        f"context. {retry} "
+                        "Meta/Personal remain available."
+                    )
+                return
+            if pair_state is PairRefreshState.ERROR:
+                pair_action_label.setText(
+                    "Pair action: Pair evidence is unavailable for this context. "
+                    f"{retry} Meta/Personal remain available."
+                )
+                return
+            if current_result is not None:
+                pair_action_label.setText(
+                    f"Pair action: {names(available)} {verb(available)} available for the current "
+                    "context. "
+                    "Meta/Personal remain independently available."
+                )
+                return
+            pair_action_label.setText(
+                "Pair action: Pair evidence has not completed for this context. "
+                f"{retry} Meta/Personal remain available."
+            )
+
         def update_manual_refresh_control() -> None:
             controller = window.pair_refresh_controller
             input_data = pair_input()
@@ -698,8 +798,8 @@ def create_main_window(
             else:
                 manual_refresh.setEnabled(True)
                 manual_refresh.setToolTip(
-                    "Recalculate current pair evidence using existing provider caches "
-                    "when available"
+                    "Retry/recalculate this current context using existing provider caches when "
+                    "available; it does not force an HTTP request."
                 )
 
         def refresh() -> None:
@@ -728,6 +828,7 @@ def create_main_window(
                 )
             )
             describe_pair_observability()
+            update_pair_actionability()
             update_manual_refresh_control()
             recommendations = scorer.rank(
                 session.to_draft_state(), session.candidates, effective_evidence(), personal_stats
@@ -802,6 +903,7 @@ def create_main_window(
             }
             pair_label.setText(message or labels[state])
             describe_pair_observability()
+            update_pair_actionability()
             update_manual_refresh_control()
             update_recommendation_explanation()
 
@@ -822,6 +924,7 @@ def create_main_window(
                 window,
             )
             pair_label.setText("Pair evidence: top 8 preliminary candidates")
+            update_pair_actionability()
             update_manual_refresh_control()
 
         def trigger_pair_refresh() -> None:

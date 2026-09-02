@@ -407,6 +407,156 @@ def test_pair_observability_names_partial_and_error_components() -> None:
         window.close()
 
 
+def test_pair_actionability_explains_unavailable_service_and_no_related_picks_locally() -> None:
+    """Action guidance is display-only when pair work is unavailable or not applicable."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+
+    unavailable = create_main_window(
+        ManualDraftSession(heroes, patch), evidence_by_role=_role_bundles(heroes, patch)
+    )
+    unavailable.show()
+    assert (
+        "STRATZ pair-refresh service is unavailable in this session"
+        in _label(unavailable, "pair-refresh-action").text()
+    )
+    unavailable.close()
+
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit, "candidate-search")
+    controller = window.pair_refresh_controller
+    assert table is not None and search is not None and controller is not None
+    action = _label(window, "pair-refresh-action")
+    assert "Add an allied or enemy pick" in action.text()
+    assert "Meta/Personal remain available" in action.text()
+
+    table.selectRow(0)
+    search.setText("hero")
+    table.horizontalHeader().sectionClicked.emit(0)
+    app.processEvents()
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    assert "Add an allied or enemy pick" in action.text()
+    window.close()
+
+
+def test_pair_actionability_explains_loading_partial_retry_and_zero_extra_dispatch() -> None:
+    """Existing state transitions change guidance only; retry remains the existing button action."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 5))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_ally(heroes[0])
+    session.add_enemy(heroes[1])
+    service = ComponentPairService(counter_error="counter offline")
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit, "candidate-search")
+    controller = window.pair_refresh_controller
+    assert (
+        manual is not None and table is not None and search is not None and controller is not None
+    )
+    assert manual.isEnabled()
+
+    manual.click()
+    _wait(
+        app,
+        lambda: (
+            "Counter is unavailable; Synergy is still available"
+            in _label(window, "pair-refresh-action").text()
+        ),
+    )
+    action = _label(window, "pair-refresh-action").text()
+    assert "Refresh pair evidence to retry/recalculate this context" in action
+    assert "Meta/Personal remain available" in action
+    assert "counter offline" not in action
+    calls, generation = service.calls, controller.generation
+
+    table.selectRow(0)
+    search.setText("hero")
+    table.horizontalHeader().sectionClicked.emit(0)
+    app.processEvents()
+    assert service.calls == calls and controller.generation == generation
+    window.close()
+
+
+def test_pair_actionability_names_both_successful_components() -> None:
+    """Ready guidance identifies Counter and Synergy without requesting another evaluation."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_ally(heroes[0])
+    session.add_enemy(heroes[1])
+    service = ComponentPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    assert manual is not None
+    manual.click()
+    _wait(
+        app,
+        lambda: "Counter and Synergy are available" in _label(window, "pair-refresh-action").text(),
+    )
+    assert service.calls == 1
+    assert (
+        "Meta/Personal remain independently available"
+        in _label(window, "pair-refresh-action").text()
+    )
+    window.close()
+
+
+def test_pair_actionability_names_in_progress_state_without_starting_extra_work() -> None:
+    """The updating message observes the active worker and does not create another one."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_enemy(heroes[0])
+    service = SlowPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    controller = window.pair_refresh_controller
+    assert manual is not None and controller is not None
+    manual.click()
+    _wait(
+        app,
+        lambda: (
+            service.calls == 1
+            and "Updating evidence for this context" in _label(window, "pair-refresh-action").text()
+        ),
+    )
+    assert controller.active_thread is not None
+    assert "Meta/Personal remain available" in _label(window, "pair-refresh-action").text()
+    window.close()
+
+
 def test_reset_discards_stale_pair_result_without_leaving_old_observability() -> None:
     app = QApplication.instance() or QApplication([])
     heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))

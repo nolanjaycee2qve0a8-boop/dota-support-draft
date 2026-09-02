@@ -32,6 +32,8 @@ DOTA-020 derives the candidate result count, text-filter state, and typed displa
 
 DOTA-022 formats the existing selected `CandidateRow` into structured read-only text within the same explanation widget. The formatting escapes dynamic display text and preserves the score disclaimer plus unavailable/neutral-zero component wording; it has no provider, scorer, or controller dependency.
 
+DOTA-027 adds a local ordered comparison selection after `CandidateRow` values are built. The panel keeps at most three legal hero IDs, maps them to the current unfiltered local candidate rows, and prunes IDs after every rerender when draft changes make a candidate illegal. It displays the current role, score disclaimer, confidence, and component availability from those existing rows. Selection, add/remove/clear, filtering, sorting, and table interactions neither schedule pair work nor call a provider; role and pair-overlay rerenders only update local display values.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

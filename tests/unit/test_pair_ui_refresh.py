@@ -13,9 +13,11 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTextEdit,
+    QWidget,
 )
 
 from dota_support_draft.domain import (
+    CounterEvidence,
     DataProvenance,
     EvidenceSet,
     Hero,
@@ -81,6 +83,34 @@ class ComponentPairService(CountingPairService):
             counter_error=self.counter_error,
             synergy_error=self.synergy_error,
         )
+
+
+class CounterPairService(CountingPairService):
+    """Fixture service proving a completed pair overlay only rerenders local cards."""
+
+    def refresh(self, input_data):
+        self.calls += 1
+        enemy = input_data.draft.enemy_picks[0].hero
+        provenance = DataProvenance(
+            "fixture",
+            datetime.now(UTC),
+            "fixture",
+            input_data.draft.patch.version,
+            data_kind="TEST/FIXTURE",
+        )
+        counters = tuple(
+            CounterEvidence(
+                candidate,
+                enemy,
+                input_data.context.role,
+                input_data.draft.patch,
+                1_000,
+                provenance,
+                effect=0.1,
+            )
+            for candidate in input_data.shortlist
+        )
+        return PairEvidenceResult(input_data.generation, input_data.context, counters=counters)
 
 
 def _role_bundles(heroes: tuple[Hero, ...], patch: Patch) -> RoleEvidenceBundles:
@@ -193,15 +223,17 @@ def test_resizable_content_layout_preserves_controls_without_pair_work() -> None
     composition = window.findChild(QTextEdit, "composition-context")
     table = window.findChild(QTableWidget, "candidate-table")
     explanation = _explanation(window)
+    comparison = window.findChild(QWidget, "candidate-comparison")
     assert splitter is not None
     assert composition is not None
     assert table is not None
-    assert splitter.count() == 3
+    assert splitter.count() == 4
     assert all(size > 0 for size in splitter.sizes())
     assert composition.isVisible() and table.isVisible() and explanation.isVisible()
+    assert comparison is not None and comparison.isVisible()
     assert table.viewport().height() >= 120
 
-    splitter.setSizes([110, 360, 150])
+    splitter.setSizes([100, 320, 140, 170])
     window.resize(920, 680)
     app.processEvents()
     assert table.viewport().height() >= 100
@@ -1155,3 +1187,120 @@ def test_full_offscreen_user_workflow_preserves_local_and_shutdown_contracts() -
     app.processEvents()
     assert [input_data.generation for input_data in service.inputs] == [1, 5, 7]
     assert controller.generation == 9 and controller.findChildren(QThread) == []
+
+
+def test_candidate_comparison_is_bounded_local_and_tracks_role_rerender() -> None:
+    """Comparison consumes rendered rows without dispatching pair work."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 5))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=10_000,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    add = window.findChild(QPushButton, "add-candidate-comparison")
+    remove = window.findChild(QPushButton, "remove-candidate-comparison")
+    clear = window.findChild(QPushButton, "clear-candidate-comparison")
+    status = _label(window, "candidate-comparison-status")
+    first = window.findChild(QTextEdit, "candidate-comparison-slot-1")
+    assert (
+        table is not None
+        and add is not None
+        and remove is not None
+        and clear is not None
+        and first is not None
+    )
+
+    for index in range(3):
+        table.selectRow(index)
+        add.click()
+    table.selectRow(0)
+    add.click()
+    app.processEvents()
+    assert "3 / 3 legal candidates" in status.text()
+    assert "Hero 1" in first.toPlainText()
+    assert "Experimental score" in first.toPlainText()
+    assert "not a win prediction" in first.toPlainText()
+    assert service.calls == 0
+    assert window.pair_refresh_controller is not None
+    assert window.pair_refresh_controller.generation == 0
+
+    table.selectRow(1)
+    remove.click()
+    assert "2 / 3 legal candidates" in status.text()
+    add.click()
+    assert "3 / 3 legal candidates" in status.text()
+
+    radios = {radio.text(): radio for radio in window.findChildren(QRadioButton)}
+    radios["Position 5"].click()
+    app.processEvents()
+    assert "Role: Position 5" in first.toPlainText()
+    assert service.calls == 0 and window.pair_refresh_controller.generation == 1
+    clear.click()
+    assert "Empty comparison slot" in first.toPlainText()
+    assert "select up to 3 legal candidates" in status.text()
+    window.close()
+
+
+def test_candidate_comparison_removes_hero_that_becomes_illegal_without_extra_work() -> None:
+    """A draft mutation purges an illegal compared hero; comparison adds no dispatch."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=10_000,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    add = window.findChild(QPushButton, "add-candidate-comparison")
+    first = window.findChild(QTextEdit, "candidate-comparison-slot-1")
+    controller = window.pair_refresh_controller
+    assert table is not None and add is not None and first is not None and controller is not None
+    table.selectRow(0)
+    add.click()
+    assert "Hero 1" in first.toPlainText()
+    generation_before_draft = controller.generation
+    _button(window, "Add Enemy").click()
+    app.processEvents()
+    assert "Empty comparison slot" in first.toPlainText()
+    assert controller.generation == generation_before_draft + 1
+    assert service.calls == 0 and controller.active_thread is None
+    window.close()
+
+
+def test_candidate_comparison_rerenders_current_pair_overlay_locally() -> None:
+    """A completed current-context pair result updates the card without a comparison dispatch."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CounterPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    add = window.findChild(QPushButton, "add-candidate-comparison")
+    first = window.findChild(QTextEdit, "candidate-comparison-slot-1")
+    assert table is not None and add is not None and first is not None
+
+    table.selectRow(0)
+    add.click()
+    assert "Counter: unavailable" in first.toPlainText()
+    table.selectRow(1)
+    _button(window, "Add Enemy").click()
+    _wait(app, lambda: service.calls == 1 and "Counter: unavailable" not in first.toPlainText())
+    assert "Hero 1" in first.toPlainText()
+    assert "Counter:" in first.toPlainText()
+    window.close()

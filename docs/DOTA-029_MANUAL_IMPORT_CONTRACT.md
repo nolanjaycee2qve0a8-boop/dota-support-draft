@@ -1,11 +1,11 @@
 # DOTA-029 — Manual Draft Import Contract Fixtures
 
-状态：docs/test-only contract；**没有实现导入功能**。
+状态：DOTA-029 的 docs/test-only contract；DOTA-033 已实现受限的用户粘贴 preview/explicit-confirmation UI。
 日期：2026-09-02。
 
 ## 目的与非目标
 
-本文件只定义未来人工 preview/confirmation 可审查的离线 document grammar，及其脱敏 test fixtures。它不是 Dota GSI、真实游戏输入、自动检测、文件读取功能或 GUI 入口。应用目前不能导入草稿。
+本文件定义人工 preview/confirmation 可审查的离线 document grammar，及其脱敏 test fixtures。DOTA-033 仅允许用户主动粘贴 JSON、先 preview、再显式 Confirm；它不是 Dota GSI、真实游戏输入、自动检测、文件读取、watcher 或自动导入功能。
 
 此 contract 的唯一来源标识是 `MANUAL_IMPORT`：用户将来主动粘贴或选择的本地文档仍必须经过 preview 和明确确认。contract 不授权生产 parser、文件选择/read/watcher、HTTP listener、GSI、第三方文件 adapter、DraftState replacement 或自动应用。
 

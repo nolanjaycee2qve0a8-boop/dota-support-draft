@@ -1,7 +1,8 @@
+import json
 import time
 from datetime import UTC, date, datetime
 
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QThread, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -228,13 +229,14 @@ def test_resizable_content_layout_preserves_controls_without_pair_work() -> None
     assert splitter is not None
     assert composition is not None
     assert table is not None
-    assert splitter.count() == 4
-    assert all(size > 0 for size in splitter.sizes())
+    assert splitter.count() == 5
+    assert splitter.sizes()[0] == 0
+    assert all(size > 0 for size in splitter.sizes()[1:])
     assert composition.isVisible() and table.isVisible() and explanation.isVisible()
     assert comparison is not None and comparison.isVisible()
     assert table.viewport().height() >= 120
 
-    splitter.setSizes([100, 320, 140, 170])
+    splitter.setSizes([0, 100, 320, 140, 170])
     window.resize(920, 680)
     app.processEvents()
     assert table.viewport().height() >= 100
@@ -1077,6 +1079,276 @@ def test_candidate_keyboard_search_table_and_comparison_are_local_only() -> None
     assert search.text() == "" and search.hasFocus()
     assert "Candidate: Hero 2" in _explanation(window).toPlainText()
     assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    window.close()
+
+
+def test_manual_import_preview_cancel_and_confirm_follow_local_pair_contract() -> None:
+    """Preview/cancel are inert; confirmation atomically replaces draft and schedules once."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 6))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_ally(heroes[0])
+    session.add_enemy(heroes[1])
+    session.set_ally_assignment(heroes[0], TeamPosition.POSITION_1, PlannedLane.SAFE)
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=10_000,
+    )
+    window.show()
+    text = window.findChild(QTextEdit, "manual-import-text")
+    preview = _label(window, "manual-import-preview")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    cancel = window.findChild(QPushButton, "cancel-manual-import")
+    confirm = window.findChild(QPushButton, "confirm-manual-import")
+    composition = window.findChild(QTextEdit, "composition-context")
+    controller = window.pair_refresh_controller
+    assert (
+        text is not None
+        and validate is not None
+        and cancel is not None
+        and confirm is not None
+        and composition is not None
+        and controller is not None
+    )
+    payload = json.dumps(
+        {
+            "schema_version": "dota-support-draft/manual-import/v1",
+            "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "2026-09-02T00:00:00Z"},
+            "draft": {
+                "complete": True,
+                "patch_version": "7.40",
+                "intended_role": "POSITION_5",
+                "allied_hero_ids": [3],
+                "enemy_hero_ids": [4],
+                "banned_hero_ids": [5],
+            },
+        }
+    )
+    original = session.to_draft_state()
+    text.setPlainText(payload)
+    validate.click()
+    app.processEvents()
+    assert confirm.isEnabled() and cancel.isEnabled()
+    assert "current 1" in preview.text() and "clears all existing manual ally" in preview.text()
+    assert session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+
+    cancel.click()
+    assert not confirm.isEnabled() and session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+
+    validate.click()
+    confirm.click()
+    app.processEvents()
+    assert session.role is Role.POSITION_5
+    assert [hero.hero_id for hero in session.allies] == [3]
+    assert [hero.hero_id for hero in session.enemies] == [4]
+    assert {hero.hero_id for hero in session.bans} == {5}
+    assert session.ally_assignments == {}
+    assert "Hero 1" not in composition.toPlainText()
+    assert "Import confirmed" in preview.text()
+    assert controller.generation == 1 and service.calls == 0 and controller.active_thread is None
+    window.close()
+
+
+def test_manual_import_rejection_and_unknown_time_do_not_dispatch_before_confirmation() -> None:
+    """Bad input is inert, while unknown time remains an explicitly confirmable preview."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    text = window.findChild(QTextEdit, "manual-import-text")
+    preview = _label(window, "manual-import-preview")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    confirm = window.findChild(QPushButton, "confirm-manual-import")
+    controller = window.pair_refresh_controller
+    assert (
+        text is not None and validate is not None and confirm is not None and controller is not None
+    )
+    original = session.to_draft_state()
+    text.setPlainText('{"schema_version":"unsupported"}')
+    validate.click()
+    app.processEvents()
+    assert "Import rejected" in preview.text() and not confirm.isEnabled()
+    assert session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+
+    text.setPlainText(
+        json.dumps(
+            {
+                "schema_version": "dota-support-draft/manual-import/v1",
+                "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "unknown"},
+                "draft": {
+                    "complete": True,
+                    "patch_version": "7.40",
+                    "intended_role": "POSITION_4",
+                    "allied_hero_ids": [],
+                    "enemy_hero_ids": [],
+                    "banned_hero_ids": [],
+                },
+            }
+        )
+    )
+    validate.click()
+    assert confirm.isEnabled() and "observed time unknown" in preview.text()
+    assert session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    window.close()
+
+
+def test_close_with_pending_import_preview_keeps_pair_shutdown_cooperative() -> None:
+    """A pending preview is inert while an active worker completes the normal deferred close."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 5))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_enemy(heroes[0])
+    service = SlowPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    text = window.findChild(QTextEdit, "manual-import-text")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    confirm = window.findChild(QPushButton, "confirm-manual-import")
+    controller = window.pair_refresh_controller
+    assert (
+        manual is not None
+        and text is not None
+        and validate is not None
+        and confirm is not None
+        and controller is not None
+    )
+    original = session.to_draft_state()
+    manual.click()
+    _wait(app, lambda: service.calls == 1 and controller.active_thread is not None)
+    text.setPlainText(
+        json.dumps(
+            {
+                "schema_version": "dota-support-draft/manual-import/v1",
+                "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "2026-09-02T00:00:00Z"},
+                "draft": {
+                    "complete": True,
+                    "patch_version": "7.40",
+                    "intended_role": "POSITION_5",
+                    "allied_hero_ids": [2],
+                    "enemy_hero_ids": [],
+                    "banned_hero_ids": [],
+                },
+            }
+        )
+    )
+    validate.click()
+    assert confirm.isEnabled() and session.to_draft_state() == original
+
+    window.close()
+    assert window.isVisible()
+    _wait(
+        app,
+        lambda: (
+            not window.isVisible()
+            and controller.active_thread is None
+            and controller.retired_worker_count == 0
+        ),
+    )
+    assert session.to_draft_state() == original
+    assert service.calls == 1 and controller.findChildren(QThread) == []
+
+
+def test_manual_import_layout_is_collapsed_and_keeps_draft_controls_accessible() -> None:
+    """The low-frequency import panel cannot overlap or consume the draft workspace by default."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.resize(1920, 1080)
+    window.show()
+    entry = window.findChild(QWidget, "manual-import-entry")
+    panel = window.findChild(QWidget, "manual-import-section")
+    toggle = window.findChild(QPushButton, "toggle-manual-import")
+    text = window.findChild(QTextEdit, "manual-import-text")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    cancel = window.findChild(QPushButton, "cancel-manual-import")
+    candidates = window.findChild(QTableWidget, "candidate-table")
+    allies = window.findChild(QListWidget, "allied-picks")
+    save_context = window.findChild(QPushButton, "save-ally-composition")
+    controller = window.pair_refresh_controller
+    assert (
+        entry is not None
+        and panel is not None
+        and toggle is not None
+        and text is not None
+        and validate is not None
+        and cancel is not None
+        and candidates is not None
+        and allies is not None
+        and save_context is not None
+        and controller is not None
+    )
+
+    def bounds(widget: QWidget) -> QRect:
+        return QRect(widget.mapTo(window, QPoint(0, 0)), widget.size())
+
+    def assert_accessible(expanded: bool) -> None:
+        app.processEvents()
+        for widget in (entry, candidates, allies, save_context):
+            assert widget.isVisible() and widget.width() > 0 and widget.height() > 0
+        assert candidates.viewport().height() > 0
+        assert not bounds(entry).intersects(bounds(candidates))
+        assert not bounds(allies).intersects(bounds(candidates))
+        assert panel.isVisible() is expanded
+        if expanded:
+            assert not bounds(panel).intersects(bounds(candidates))
+
+    assert_accessible(False)
+    window.resize(900, 700)
+    assert_accessible(False)
+    toggle.click()
+    assert_accessible(True)
+    text.setPlainText(
+        json.dumps(
+            {
+                "schema_version": "dota-support-draft/manual-import/v1",
+                "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "2026-09-02T00:00:00Z"},
+                "draft": {
+                    "complete": True,
+                    "patch_version": "7.40",
+                    "intended_role": "POSITION_4",
+                    "allied_hero_ids": [],
+                    "enemy_hero_ids": [],
+                    "banned_hero_ids": [],
+                },
+            }
+        )
+    )
+    validate.click()
+    assert not toggle.isEnabled() and candidates.viewport().height() > 0
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    cancel.click()
+    assert not toggle.isChecked()
+    assert_accessible(False)
     window.close()
 
 

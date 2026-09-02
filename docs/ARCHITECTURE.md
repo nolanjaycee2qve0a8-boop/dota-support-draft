@@ -38,6 +38,8 @@ DOTA-031 adds keyboard focus handling only at that same local presentation bound
 
 DOTA-032 locks this presentation boundary with one offscreen Qt regression matrix. Search/clear, sorting, table selection, comparison controls, keyboard focus/navigation, and explanation rerenders may change only local display, selection, comparison, or focus state. The matrix asserts that each leaves `DraftState`, canonical pair shortlist context, displayed score/evidence values, pair generation, worker count, and fake pair-service calls unchanged.
 
+DOTA-033 places pasted `MANUAL_IMPORT/v1` text at a local `draft.manual_import` assessment boundary. The assessor parses and validates the complete schema, provenance, timestamp, patch, active catalog IDs, and `DraftState` invariants into an inert preview. Only an enabled UI Confirm invokes `ManualDraftSession.replace_from_manual_import`, which first validates local catalog membership and then atomically replaces picks, bans, and intended P4/P5 role while clearing manual ally assignments absent from v1. Preview, rejection, cancellation, and text changes never invoke the refresh controller; a confirmed semantic replacement uses the existing single scheduling path and stale context rejection. DOTA-033R1 keeps this low-frequency panel collapsed by default; its expanded content is a resizable splitter section, so it cannot overlay the composition controls or candidate table. A valid preview locks the panel open until Cancel or Confirm deterministically collapses it.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

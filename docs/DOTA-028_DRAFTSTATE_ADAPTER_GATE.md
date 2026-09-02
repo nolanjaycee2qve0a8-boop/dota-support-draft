@@ -84,13 +84,13 @@ source-specific DTO / local document
 6. **安全审查**：local endpoint/file access 的最小权限、loopback binding、非敏感日志和 token exclusion 都需单独批准。禁止 game memory、injection、input automation、screen-recognition bypass、process inspection 和自动 gameplay control。
 7. **产品文案**：通过前只称为“manual draft import proposal”或“unavailable adapter”；不得称 real-time、auto-detected、authoritative 或 live draft。
 
-## 建议的下一安全任务：DOTA-029（提案，未批准）
+## DOTA-029 contract fixtures（已完成，仍未实现导入）
 
 **名称：Manual Draft Import Contract Fixtures（docs/test-only）**
 
-- 只新增一个版本化 `MANUAL_IMPORT` document grammar、redacted fixture 与 parser/validation contract tests；不新增 GUI 入口、生产 parser、file I/O、watcher、HTTP listener 或 DraftState replacement。
-- 明确 input 必须由用户主动粘贴/选择，preview/confirmation 仍是未来需求；测试只验证 contract examples，不能声称应用已可导入草稿。
-- 复用现有 `DraftState` invariants，测试所有 reject/no-mutation cases；不改 scoring、providers、pair shortlists、cache、QThread、token 或 runtime dependencies。
+- DOTA-029 新增了版本化 `MANUAL_IMPORT` document grammar、redacted fixture 与 test-local validation contract tests；没有 GUI 入口、生产 parser、file I/O、watcher、HTTP listener 或 DraftState replacement。
+- input 仍必须由用户主动粘贴/选择，preview/confirmation 仍是未来需求；测试只验证 contract examples，应用尚不能导入草稿。
+- 测试复用现有 `DraftState` invariants，覆盖 reject/no-mutation cases；没有改变 scoring、providers、pair shortlists、cache、QThread、token 或 runtime dependencies。
 - Dota GSI 和第三方文件保持 out of scope，直到上方 gate 1–7 全部满足并获得单独授权。
 
 这项提案的价值是先固定“合法输入是什么”和“坏输入绝不改草稿”，而不杜撰一个未证实的游戏采集协议。

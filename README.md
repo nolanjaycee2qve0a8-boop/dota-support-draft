@@ -36,6 +36,8 @@ DOTA-022 structures the selected-candidate explanation into Candidate, recommend
 
 DOTA-027 adds a local candidate-comparison panel. Add up to three current legal candidates to compare their already calculated score, confidence, and Meta/Counter/Synergy/Personal evidence. Adding, removing, clearing, searching, sorting, and selecting candidates are display-only operations: they do not request pair evidence or change recommendations. A compared hero is removed automatically if a draft change makes it illegal; the experimental score remains an ordering explanation, not a win prediction.
 
+DOTA-031 improves keyboard access to the local candidate display: `Ctrl+F` focuses search, `Escape` clears it while search is focused, `Enter` moves to the candidate table, and arrow keys move the table selection. These controls only filter or select already calculated candidates; they never add picks/bans, request data, or change recommendation evidence.
+
 ## Windows local Token launch
 
 From the project root, run:

@@ -1,7 +1,8 @@
 import time
 from datetime import UTC, date, datetime
 
-from PySide6.QtCore import QThread, QTimer
+from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -1018,6 +1019,101 @@ def test_candidate_table_sorting_preserves_visible_selection_without_pair_work()
     app.processEvents()
     assert _explanation(window).toPlainText() == "Select a candidate hero to inspect its evidence."
     assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    window.close()
+
+
+def test_candidate_keyboard_search_table_and_comparison_are_local_only() -> None:
+    """Ctrl+F, Escape, Enter, and arrows change local presentation but never mutate a draft."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    service = CountingPairService()
+    window = create_main_window(
+        ManualDraftSession(heroes, patch),
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit, "candidate-search")
+    add_comparison = window.findChild(QPushButton, "add-candidate-comparison")
+    comparison = window.findChild(QTextEdit, "candidate-comparison-slot-1")
+    controller = window.pair_refresh_controller
+    assert (
+        table is not None
+        and search is not None
+        and add_comparison is not None
+        and comparison is not None
+        and controller is not None
+    )
+    assert search.accessibleName() == "Candidate search"
+    assert "Escape clears it" in search.accessibleDescription()
+    assert table.accessibleName() == "Candidate table"
+
+    window.activateWindow()
+    table.setFocus()
+    app.processEvents()
+    QTest.keyClick(window, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    app.processEvents()
+    assert search.hasFocus()
+    QTest.keyClicks(search, "hero")
+    QTest.keyClick(search, Qt.Key.Key_Return)
+    app.processEvents()
+    assert table.hasFocus() and table.currentRow() == 0
+    QTest.keyClick(table, Qt.Key.Key_Down)
+    app.processEvents()
+    assert table.currentRow() == 1
+    assert "Candidate: Hero 2" in _explanation(window).toPlainText()
+
+    assert add_comparison.isEnabled()
+    add_comparison.click()
+    assert "Hero 2" in comparison.toPlainText()
+    QTest.keyClick(window, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    app.processEvents()
+    assert search.hasFocus()
+    QTest.keyClick(search, Qt.Key.Key_Escape)
+    app.processEvents()
+    assert search.text() == "" and search.hasFocus()
+    assert "Candidate: Hero 2" in _explanation(window).toPlainText()
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    window.close()
+
+
+def test_candidate_table_focus_and_selection_survive_pair_result_rerender() -> None:
+    """A pair result preserves a legal table selection and table focus for arrow navigation."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 5))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_enemy(heroes[0])
+    service = SlowPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    manual = window.findChild(QPushButton, "manual-pair-refresh")
+    controller = window.pair_refresh_controller
+    assert table is not None and manual is not None and controller is not None
+    table.setCurrentCell(0, 0)
+    selected = table.item(0, 0)
+    assert selected is not None
+    selected_name = selected.text()
+    table.setFocus()
+
+    manual.click()
+    table.setFocus()
+    _wait(app, lambda: service.calls == 1 and controller.active_thread is None)
+    assert table.hasFocus()
+    current = table.item(table.currentRow(), 0)
+    assert current is not None and current.text() == selected_name
+    QTest.keyClick(table, Qt.Key.Key_Down)
+    app.processEvents()
+    assert table.currentRow() == 1
     window.close()
 
 

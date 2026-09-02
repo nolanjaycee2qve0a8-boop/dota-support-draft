@@ -6,7 +6,7 @@ from collections.abc import Callable
 from html import escape
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -186,9 +186,19 @@ def create_main_window(
     composition_controls.addWidget(save_composition)
     search = QLineEdit()
     search.setObjectName("candidate-search")
-    search.setPlaceholderText("Hero search")
+    search.setPlaceholderText("Hero search (Ctrl+F)")
+    search.setAccessibleName("Candidate search")
+    search.setAccessibleDescription(
+        "Filters the local candidate display. Ctrl+F focuses this field; Escape clears it; "
+        "Enter moves to the candidate table."
+    )
+    search.setToolTip(
+        "Ctrl+F focuses search. Escape clears it. Enter moves to the candidate table."
+    )
     clear_search = QPushButton("Clear search")
     clear_search.setObjectName("candidate-search-clear")
+    clear_search.setAccessibleName("Clear candidate search")
+    clear_search.setToolTip("Clear the local candidate search and return focus to search.")
     clear_search.setEnabled(False)
     player_config_status = QLabel(
         "Configure a public numeric Steam32/OpenDota account ID. Changes load after restart."
@@ -245,6 +255,10 @@ def create_main_window(
     layout.addWidget(QLabel("Personal history is ALL-TIME; ROLE UNKNOWN."))
     candidates = QTableWidget(0, 8)
     candidates.setObjectName("candidate-table")
+    candidates.setAccessibleName("Candidate table")
+    candidates.setAccessibleDescription(
+        "Use arrow keys to move the local candidate selection. Selection does not change the draft."
+    )
     candidates.setHorizontalHeaderLabels(
         [
             "Hero",
@@ -269,6 +283,13 @@ def create_main_window(
     candidate_filter_status = QLabel("Candidate results: loading local display…")
     candidate_filter_status.setObjectName("candidate-filter-status")
     candidates.setMinimumHeight(180)
+    focus_search_shortcut = QShortcut(QKeySequence.StandardKey.Find, window)
+    focus_search_shortcut.setObjectName("focus-candidate-search-shortcut")
+    focus_search_shortcut.activated.connect(search.setFocus)
+    clear_search_shortcut = QShortcut(QKeySequence("Escape"), search)
+    clear_search_shortcut.setObjectName("clear-candidate-search-shortcut")
+    clear_search_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+    clear_search_shortcut.activated.connect(search.clear)
     explanation_panel = QTextEdit()
     explanation_panel.setObjectName("recommendation-explanation")
     explanation_panel.setReadOnly(True)
@@ -805,6 +826,8 @@ def create_main_window(
         def refresh() -> None:
             previously_selected = selected_candidate_row()
             previous_hero_id = previously_selected.hero.hero_id if previously_selected else None
+            search_had_focus = search.hasFocus()
+            table_had_focus = candidates.hasFocus()
             allies.clear()
             enemies.clear()
             bans.clear()
@@ -864,6 +887,10 @@ def create_main_window(
                 candidates.clearSelection()
             else:
                 candidates.setCurrentCell(selected_index, 0)
+            if search_had_focus:
+                search.setFocus()
+            elif table_had_focus and rows:
+                candidates.setFocus()
             update_recommendation_explanation()
             update_comparison()
             update_draft_action_controls()
@@ -884,6 +911,14 @@ def create_main_window(
 
         def clear_candidate_search() -> None:
             search.clear()
+            search.setFocus()
+
+        def focus_candidate_table() -> None:
+            if not rendered_rows:
+                return
+            if selected_candidate_row() is None:
+                candidates.setCurrentCell(0, 0)
+            candidates.setFocus()
 
         def set_pair_state(state: PairRefreshState, message: str | None) -> None:
             nonlocal pair_state
@@ -1076,6 +1111,7 @@ def create_main_window(
         five.toggled.connect(lambda checked: choose_role(Role.POSITION_5, checked))
         search.textChanged.connect(lambda _: refresh())
         clear_search.clicked.connect(clear_candidate_search)
+        search.returnPressed.connect(focus_candidate_table)
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
         candidates.itemSelectionChanged.connect(update_comparison_controls)
         allies.itemSelectionChanged.connect(sync_composition_controls)

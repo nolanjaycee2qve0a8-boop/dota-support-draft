@@ -8,7 +8,7 @@ Possible future directions include:
 
 - team-composition and lane-fit evidence（先参阅 [DOTA-012 研究](DOTA-012_COMPOSITION_LANE_FIT_RESEARCH.md)与 [DOTA-016 provider gate](DOTA-016_LANE_FIT_PROVIDER_GATE.md)；真正 statistical lane-fit 仍未获准实施）;
 - further recommendation explanation improvements beyond the completed selected-candidate panel and local layout work;
-- legal adapters that produce `DraftState`（先参阅 [DOTA-028 adapter gate](DOTA-028_DRAFTSTATE_ADAPTER_GATE.md)：Dota GSI 与第三方文件的公开 schema/完整性 contract 尚未获验证；目前只提出 manual-import docs/fixture 研究，不批准 runtime adapter）;
+- legal adapters that produce `DraftState`（先参阅 [DOTA-028 adapter gate](DOTA-028_DRAFTSTATE_ADAPTER_GATE.md) 与 [DOTA-029 manual-import contract](DOTA-029_MANUAL_IMPORT_CONTRACT.md)：当前只有 docs/test-only grammar 与 fixtures；Dota GSI、第三方文件和 runtime adapter 均未获批准）;
 - Windows packaging（先参阅 [DOTA-023 Windows packaging gate](DOTA-023_WINDOWS_PACKAGING_GATE.md) 与 [DOTA-026 PySide6/ICU gate](DOTA-026_PYSIDE_WHEEL_ICU_GATE.md)；当前 wheel/ICU 准入仍阻断，本地 onedir、安装器、签名或发布均未获批准）。
 
 These are directions for later review, not commitments or approved implementation work.

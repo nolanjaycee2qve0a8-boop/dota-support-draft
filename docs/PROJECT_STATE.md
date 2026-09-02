@@ -60,5 +60,6 @@ The pair-refresh milestones were verified with a 250 ms debounce, background `QT
 - Candidate-table sorting is typed local display order only. It cannot change scores, pair shortlists, requests, or cache behavior.
 - The composition context, candidate table, and explanation are read-only/scrollable presentation areas in a local splitter; resizing them does not modify draft or pair state.
 - The lane-fit/provider evidence gate remains closed: no statistical lane-fit value, recommendation effect, or provider capability claim is implemented or approved.
+- DraftState input adapters remain research-gated: DOTA-028 records no approved Dota GSI or third-party-file schema, no runtime collector, and no automatic draft replacement. Any future source must pass source provenance, local mapping, human-confirmation, atomic-replacement, and Qt lifecycle gates first.
 - Windows packaging is not yet a release capability. DOTA-023 records the conditional local-onedir gate; no installer, signed binary, or distributed executable is confirmed.
 - DOTA-024's local onedir candidate remains blocked at PySide6 native runtime loading. DOTA-025 produced no commit; DOTA-026 records that the tested official PySide6 6.11.2 and 6.10.3 wheels both lack a wheel-contained ICU runtime despite `Qt6Core.dll` importing `icuuc.dll`. No packaging capability is approved.

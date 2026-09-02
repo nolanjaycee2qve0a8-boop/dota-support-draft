@@ -36,6 +36,8 @@ DOTA-027 adds a local ordered comparison selection after `CandidateRow` values a
 
 DOTA-031 adds keyboard focus handling only at that same local presentation boundary. `Ctrl+F` focuses the candidate search, search-scoped `Escape` clears it, and `Enter` moves focus to a visible candidate row for native arrow-key selection. A rerender preserves search focus, or table focus when a visible row remains, without invoking the pair controller. No keyboard shortcut invokes a draft mutation.
 
+DOTA-032 locks this presentation boundary with one offscreen Qt regression matrix. Search/clear, sorting, table selection, comparison controls, keyboard focus/navigation, and explanation rerenders may change only local display, selection, comparison, or focus state. The matrix asserts that each leaves `DraftState`, canonical pair shortlist context, displayed score/evidence values, pair generation, worker count, and fake pair-service calls unchanged.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

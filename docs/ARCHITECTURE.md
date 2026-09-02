@@ -34,6 +34,8 @@ DOTA-022 formats the existing selected `CandidateRow` into structured read-only 
 
 DOTA-027 adds a local ordered comparison selection after `CandidateRow` values are built. The panel keeps at most three legal hero IDs, maps them to the current unfiltered local candidate rows, and prunes IDs after every rerender when draft changes make a candidate illegal. It displays the current role, score disclaimer, confidence, and component availability from those existing rows. Selection, add/remove/clear, filtering, sorting, and table interactions neither schedule pair work nor call a provider; role and pair-overlay rerenders only update local display values.
 
+DOTA-031 adds keyboard focus handling only at that same local presentation boundary. `Ctrl+F` focuses the candidate search, search-scoped `Escape` clears it, and `Enter` moves focus to a visible candidate row for native arrow-key selection. A rerender preserves search focus, or table focus when a visible row remains, without invoking the pair controller. No keyboard shortcut invokes a draft mutation.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

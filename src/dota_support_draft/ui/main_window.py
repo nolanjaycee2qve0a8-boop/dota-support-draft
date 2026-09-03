@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from dota_support_draft.config import PlayerAccountPreferenceStore
 from dota_support_draft.domain import (
     CounterEvidence,
+    DraftState,
     EvidenceSet,
     Hero,
     PersonalHeroStat,
@@ -313,6 +314,10 @@ def create_main_window(
     copy_draft_summary.setToolTip(
         "Copy only the local manual draft summary to the system clipboard."
     )
+    undo_draft = QPushButton("Undo draft")
+    undo_draft.setObjectName("draft-undo-action")
+    redo_draft = QPushButton("Redo draft")
+    redo_draft.setObjectName("draft-redo-action")
     for button, object_name in (
         (add_ally, "add-ally"),
         (add_enemy, "add-enemy"),
@@ -333,6 +338,8 @@ def create_main_window(
         reset,
         manual_refresh,
         copy_draft_summary,
+        undo_draft,
+        redo_draft,
     ):
         controls.addWidget(button)
     layout.addLayout(controls)
@@ -465,6 +472,36 @@ def create_main_window(
         comparison_rows_by_id: dict[int, CandidateRow] = {}
         pending_import: ManualImportAssessment | None = None
         last_confirmed_import_time = None
+        undo_snapshot: DraftState | None = None
+        redo_snapshot: DraftState | None = None
+
+        def update_draft_history_controls() -> None:
+            undo_draft.setEnabled(undo_snapshot is not None)
+            redo_draft.setEnabled(redo_snapshot is not None)
+
+        def record_draft_change(before: DraftState) -> None:
+            nonlocal undo_snapshot, redo_snapshot
+            undo_snapshot, redo_snapshot = before, None
+            update_draft_history_controls()
+
+        def restore_draft_history(snapshot: DraftState, redo: bool) -> None:
+            nonlocal undo_snapshot, redo_snapshot
+            current = session.to_draft_state()
+            session.replace_from_manual_import(snapshot)
+            undo_snapshot, redo_snapshot = (current, None) if redo else (None, current)
+            four.setChecked(session.role is Role.POSITION_4)
+            five.setChecked(session.role is Role.POSITION_5)
+            refresh()
+            update_draft_history_controls()
+            trigger_pair_refresh()
+
+        def undo_last_draft_change() -> None:
+            if undo_snapshot is not None:
+                restore_draft_history(undo_snapshot, False)
+
+        def redo_last_draft_change() -> None:
+            if redo_snapshot is not None:
+                restore_draft_history(redo_snapshot, True)
 
         def set_import_expanded(expanded: bool) -> None:
             manual_import_section.setVisible(expanded)
@@ -531,12 +568,14 @@ def create_main_window(
                 clear_import_preview("No valid import preview is available to confirm.")
                 return
             try:
+                before = session.to_draft_state()
                 session.replace_from_manual_import(assessment.draft)
             except ValueError:
                 clear_import_preview("Import could not be applied. Current draft unchanged.")
                 return
             if assessment.observed_at is not None:
                 last_confirmed_import_time = assessment.observed_at
+            record_draft_change(before)
             four.setChecked(session.role is Role.POSITION_4)
             five.setChecked(session.role is Role.POSITION_5)
             refresh()
@@ -1299,10 +1338,12 @@ def create_main_window(
                 update_draft_action_controls("Select a candidate hero first.")
                 return
             try:
+                before = session.to_draft_state()
                 action(hero)
             except ValueError as error:
                 update_draft_action_controls(str(error))
                 return
+            record_draft_change(before)
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls(
@@ -1318,10 +1359,12 @@ def create_main_window(
                 update_draft_action_controls("Select a hero from the relevant list first.")
                 return
             try:
+                before = session.to_draft_state()
                 action(hero)
             except ValueError as error:
                 update_draft_action_controls(str(error))
                 return
+            record_draft_change(before)
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls(
@@ -1344,7 +1387,9 @@ def create_main_window(
             if not (session.allies or session.enemies or session.bans):
                 update_draft_action_controls("Draft is already empty.")
                 return
+            before = session.to_draft_state()
             session.clear()
+            record_draft_change(before)
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls("Draft reset.")
@@ -1353,7 +1398,9 @@ def create_main_window(
         def choose_role(role: Role, checked: bool) -> None:
             if not checked or session.role is role:
                 return
+            before = session.to_draft_state()
             session.set_role(role)
+            record_draft_change(before)
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls("Role changed; draft context updated.")
@@ -1361,6 +1408,8 @@ def create_main_window(
 
         reset.clicked.connect(reset_draft)
         manual_refresh.clicked.connect(trigger_manual_pair_refresh)
+        undo_draft.clicked.connect(undo_last_draft_change)
+        redo_draft.clicked.connect(redo_last_draft_change)
         copy_draft_summary.clicked.connect(copy_current_draft_summary)
         add_comparison.clicked.connect(add_selected_to_comparison)
         remove_comparison.clicked.connect(remove_selected_from_comparison)
@@ -1407,6 +1456,7 @@ def create_main_window(
                 player_account_input.setText(saved_account_id)
         refresh()
         update_candidate_sort_status()
+        update_draft_history_controls()
     else:
         for widget in (
             four,
@@ -1420,6 +1470,8 @@ def create_main_window(
             reset,
             manual_refresh,
             copy_draft_summary,
+            undo_draft,
+            redo_draft,
             team_position_input,
             planned_lane_input,
             save_composition,

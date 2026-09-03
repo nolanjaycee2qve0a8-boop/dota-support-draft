@@ -46,6 +46,8 @@ DOTA-036 adds explicit local JSON file actions inside the collapsed import panel
 
 DOTA-037 gives rejected manual imports safe repair guidance: JSON syntax reports line/column; schema, patch, role, timestamp, and hero-list problems report a field and next action; hero errors may show only the numeric ID. It never echoes pasted text, paths, Tokens, accounts, or provider details.
 
+DOTA-038 adds one-step local draft Undo/Redo for picks, bans, and intended P4/P5 role. It is local draft history only: it never restores pair evidence, provider results, workers, or authoritative game state.
+
 ## Windows local Token launch
 
 From the project root, run:

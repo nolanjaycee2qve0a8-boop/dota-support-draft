@@ -487,7 +487,7 @@ def create_main_window(
         def restore_draft_history(snapshot: DraftState, redo: bool) -> None:
             nonlocal undo_snapshot, redo_snapshot
             current = session.to_draft_state()
-            session.replace_from_manual_import(snapshot)
+            session.replace_draft_state_only(snapshot)
             undo_snapshot, redo_snapshot = (current, None) if redo else (None, current)
             four.setChecked(session.role is Role.POSITION_4)
             five.setChecked(session.role is Role.POSITION_5)

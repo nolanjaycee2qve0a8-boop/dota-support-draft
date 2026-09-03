@@ -116,6 +116,37 @@ class ManualDraftSession:
         self.role = draft.intended_role
         self.ally_assignments.clear()
 
+    def replace_draft_state_only(self, draft: DraftState) -> None:
+        """Atomically restore picks, bans, and role without importing or restoring ally context."""
+        if draft.patch != self.patch:
+            raise ManualDraftError("Draft patch does not match this session")
+        catalog = {hero.hero_id: hero for hero in self.heroes}
+
+        def local(hero: Hero) -> Hero:
+            mapped = catalog.get(hero.hero_id)
+            if mapped != hero or not mapped.is_active:
+                raise ManualDraftError("Draft has an unknown or inactive hero")
+            return mapped
+
+        allies = [local(pick.hero) for pick in draft.allied_picks]
+        enemies = [local(pick.hero) for pick in draft.enemy_picks]
+        banned = {local(hero) for hero in draft.banned_heroes}
+        if {hero.hero_id for hero in allies} & {hero.hero_id for hero in enemies}:
+            raise ManualDraftError("Draft picks overlap")
+        if ({hero.hero_id for hero in allies} | {hero.hero_id for hero in enemies}) & {
+            hero.hero_id for hero in banned
+        }:
+            raise ManualDraftError("Draft picks and bans overlap")
+        self.allies, self.enemies, self.bans, self.role = (
+            allies,
+            enemies,
+            banned,
+            draft.intended_role,
+        )
+        self.ally_assignments = {
+            hero: assignment for hero, assignment in self.ally_assignments.items() if hero in allies
+        }
+
     @property
     def candidates(self) -> tuple[Hero, ...]:
         excluded = {*self.allies, *self.enemies, *self.bans}

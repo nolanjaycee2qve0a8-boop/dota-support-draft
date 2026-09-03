@@ -1420,6 +1420,44 @@ def test_manual_import_template_and_clear_are_editor_only_local_actions() -> Non
     window.close()
 
 
+def test_copy_draft_summary_writes_only_manual_context_without_pair_side_effects() -> None:
+    """Copy is an explicit local clipboard write and does not mutate or refresh the draft."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_ally(heroes[0])
+    session.set_ally_assignment(heroes[0], TeamPosition.POSITION_1, PlannedLane.SAFE)
+    session.add_enemy(heroes[1])
+    session.ban(heroes[2])
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    copy = window.findChild(QPushButton, "copy-draft-summary")
+    status = _label(window, "draft-summary-status")
+    controller = window.pair_refresh_controller
+    assert copy is not None and controller is not None
+    original = session.to_draft_state()
+
+    copy.click()
+    payload = app.clipboard().text()
+    assert "Manual draft summary — not auto-detected" in payload
+    assert "Patch: 7.40" in payload and "Intended role: Position 4" in payload
+    assert "Allied picks: Hero 1" in payload and "Enemy picks: Hero 2" in payload
+    assert "Bans: Hero 3" in payload and "- Hero 1: P1, Safe" in payload
+    assert all(term not in payload.casefold() for term in ("token", "account", "score", "evidence"))
+    assert "copied" in status.text().lower()
+    assert session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    assert controller.findChildren(QThread) == []
+    window.close()
+
+
 def test_local_candidate_display_matrix_has_no_draft_or_pair_side_effects() -> None:
     """Presentation-only candidate controls preserve draft, canonical evidence, and pair state."""
     app = QApplication.instance() or QApplication([])

@@ -40,6 +40,8 @@ DOTA-031 improves keyboard access to the local candidate display: `Ctrl+F` focus
 
 DOTA-033 adds an explicit manual draft-import flow for pasted `MANUAL_IMPORT/v1` JSON only. It is a low-frequency, default-collapsed panel: choose `Show import` before pasting. DOTA-034 adds `Insert template` (current patch/P4-P5 role, empty hero arrays) and `Clear import text`; both only edit local text and invalidate previews. Validate/Preview never changes the current draft; Cancel remains inert; only Confirm atomically replaces picks, bans, and P4/P5 role. The v1 input has no ally position/lane fields, so confirmation clearly warns and clears existing manual ally context. This is not file input, GSI, auto-detection, or a network source.
 
+DOTA-035 adds `Copy current draft summary`. It writes a concise local manual-draft summary to the system clipboard only after the user clicks it; it contains patch, intended role, picks, bans, and any explicit ally context—never Tokens, player accounts, recommendation data, import JSON, or provider data.
+
 ## Windows local Token launch
 
 From the project root, run:

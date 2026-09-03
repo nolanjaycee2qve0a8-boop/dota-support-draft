@@ -9,6 +9,7 @@ from html import escape
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -51,6 +52,7 @@ from dota_support_draft.draft import (
     assess_pasted_manual_import,
     build_candidate_rows,
     filter_candidates,
+    format_manual_draft_summary,
     format_optional_rate,
     format_player_status,
     make_pair_input,
@@ -293,6 +295,11 @@ def create_main_window(
     )
     manual_refresh = QPushButton("Refresh pair evidence")
     manual_refresh.setObjectName("manual-pair-refresh")
+    copy_draft_summary = QPushButton("Copy current draft summary")
+    copy_draft_summary.setObjectName("copy-draft-summary")
+    copy_draft_summary.setToolTip(
+        "Copy only the local manual draft summary to the system clipboard."
+    )
     for button, object_name in (
         (add_ally, "add-ally"),
         (add_enemy, "add-enemy"),
@@ -312,9 +319,13 @@ def create_main_window(
         unban,
         reset,
         manual_refresh,
+        copy_draft_summary,
     ):
         controls.addWidget(button)
     layout.addLayout(controls)
+    draft_summary_status = QLabel("Draft summary: ready to copy local manual draft context.")
+    draft_summary_status.setObjectName("draft-summary-status")
+    layout.addWidget(draft_summary_status)
     layout.addWidget(QLabel("Personal history is ALL-TIME; ROLE UNKNOWN."))
     candidates = QTableWidget(0, 8)
     candidates.setObjectName("candidate-table")
@@ -1156,6 +1167,10 @@ def create_main_window(
             status.setText(f"Patch: {session.patch.version} | {message} | Core Draft: Ready")
             player_config_status.setText(message)
 
+        def copy_current_draft_summary() -> None:
+            QApplication.clipboard().setText(format_manual_draft_summary(session.to_draft_state()))
+            draft_summary_status.setText("Draft summary copied to the local system clipboard.")
+
         def save_player_account() -> None:
             if player_preferences is None:
                 return
@@ -1287,6 +1302,7 @@ def create_main_window(
 
         reset.clicked.connect(reset_draft)
         manual_refresh.clicked.connect(trigger_manual_pair_refresh)
+        copy_draft_summary.clicked.connect(copy_current_draft_summary)
         add_comparison.clicked.connect(add_selected_to_comparison)
         remove_comparison.clicked.connect(remove_selected_from_comparison)
         clear_comparison_button.clicked.connect(clear_comparison)
@@ -1342,6 +1358,7 @@ def create_main_window(
             unban,
             reset,
             manual_refresh,
+            copy_draft_summary,
             team_position_input,
             planned_lane_input,
             save_composition,

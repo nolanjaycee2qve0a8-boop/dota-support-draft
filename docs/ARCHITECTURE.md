@@ -46,6 +46,8 @@ DOTA-035 formats `DraftState` through a local `draft.summary` presentation funct
 
 DOTA-036's JSON encoder has only the approved v1 fields and always emits `observed_at: "unknown"`. Qt file choosers are the sole path source: a chosen import is synchronously read into the existing editor and remains inert until the existing preview/confirmation flow; a chosen export writes the encoder output. Paths are local to each click, are never persisted or reported, and read/write failures leave draft and pending preview state intact.
 
+DOTA-037 adds `ManualImportProblem` at the same contract boundary. It converts parse/validation failures into a code, safe field label, recovery guidance, optional syntax line/column, and optional numeric hero ID. UI error presentation uses that structured data and returns focus to the local editor; it never renders raw JSON, file paths, OS errors, Tokens, accounts, or provider details, and does not schedule pair work.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

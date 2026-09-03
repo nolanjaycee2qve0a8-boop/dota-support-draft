@@ -19,6 +19,25 @@ class ManualImportStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ManualImportProblem:
+    code: str
+    field_label: str
+    guidance: str
+    line: int | None = None
+    column: int | None = None
+    hero_id: int | None = None
+
+    def display_text(self) -> str:
+        location = (
+            f" Line {self.line}, column {self.column}."
+            if self.line is not None and self.column is not None
+            else ""
+        )
+        hero = f" Hero ID {self.hero_id}." if self.hero_id is not None else ""
+        return f"{self.field_label}: {self.guidance}.{hero}{location}"
+
+
+@dataclass(frozen=True, slots=True)
 class ManualImportAssessment:
     """A validated replacement candidate that remains inert until the UI confirms it."""
 
@@ -26,6 +45,7 @@ class ManualImportAssessment:
     issue: str | None = None
     draft: DraftState | None = None
     observed_at: datetime | None = None
+    problem: ManualImportProblem | None = None
 
     @property
     def can_confirm(self) -> bool:
@@ -81,9 +101,9 @@ def _map_heroes(
     for hero_id in hero_ids:
         hero = catalog.get(hero_id)
         if hero is None:
-            raise ManualImportError(f"Unknown hero ID in {side_name} picks.")
+            raise ManualImportError(f"Unknown hero ID {hero_id} in {side_name} picks.")
         if not hero.is_active:
-            raise ManualImportError(f"Inactive hero ID in {side_name} picks.")
+            raise ManualImportError(f"Inactive hero ID {hero_id} in {side_name} picks.")
         heroes.append(hero)
     return tuple(heroes)
 
@@ -97,8 +117,17 @@ def assess_pasted_manual_import(
     """Assess MANUAL_IMPORT/v1 text without mutating a session or starting any I/O."""
     try:
         parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return ManualImportAssessment(ManualImportStatus.REJECTED, "Invalid JSON document.")
+    except json.JSONDecodeError as error:
+        problem = ManualImportProblem(
+            "json_syntax",
+            "JSON syntax",
+            "Fix the JSON syntax and try Validate / Preview again",
+            error.lineno,
+            error.colno,
+        )
+        return ManualImportAssessment(
+            ManualImportStatus.REJECTED, problem.display_text(), problem=problem
+        )
     try:
         document = _mapping(parsed, "document")
         if document.get("schema_version") != MANUAL_IMPORT_SCHEMA_VERSION:
@@ -141,7 +170,10 @@ def assess_pasted_manual_import(
             banned_heroes=frozenset(banned),
         )
     except (ManualImportError, ValueError) as error:
-        return ManualImportAssessment(ManualImportStatus.REJECTED, str(error))
+        problem = _problem_for_error(str(error))
+        return ManualImportAssessment(
+            ManualImportStatus.REJECTED, problem.display_text(), problem=problem
+        )
     if observed_at is None:
         return ManualImportAssessment(
             ManualImportStatus.NEEDS_CONFIRMATION,
@@ -153,6 +185,58 @@ def assess_pasted_manual_import(
         draft=preview,
         observed_at=observed_at,
     )
+
+
+def _problem_for_error(message: str) -> ManualImportProblem:
+    """Map internal validation messages to safe, user-actionable fields without raw input."""
+    lower = message.casefold()
+    code, field, guidance = "validation", "Import document", "Check this MANUAL_IMPORT/v1 field"
+    if "schema" in lower:
+        code, field, guidance = (
+            "schema",
+            "schema_version",
+            "Use dota-support-draft/manual-import/v1",
+        )
+    elif "provenance" in lower:
+        code, field, guidance = "provenance", "provenance", "Use kind MANUAL_IMPORT"
+    elif "observed_at" in lower:
+        code, field, guidance = (
+            "timestamp",
+            "provenance.observed_at",
+            "Use a timezone-aware timestamp or unknown",
+        )
+    elif "patch" in lower:
+        code, field, guidance = "patch", "draft.patch_version", "Match the currently loaded patch"
+    elif "role" in lower:
+        code, field, guidance = "role", "draft.intended_role", "Use POSITION_4 or POSITION_5"
+    elif "partial" in lower:
+        code, field, guidance = (
+            "partial",
+            "draft.complete",
+            "Set complete to true for a replacement",
+        )
+    elif "duplicate" in lower:
+        code, field, guidance = "duplicate_hero", "hero ID list", "Remove duplicate hero IDs"
+    elif "unknown hero" in lower or "inactive hero" in lower:
+        code, field, guidance = (
+            "hero",
+            "hero ID list",
+            "Use an active hero ID from the loaded catalog",
+        )
+    elif "picked hero" in lower or "both teams" in lower:
+        code, field, guidance = (
+            "hero_conflict",
+            "picks and bans",
+            "Keep each hero on only one allowed list",
+        )
+    elif "stale" in lower:
+        code, field, guidance = (
+            "stale",
+            "provenance.observed_at",
+            "Use a newer observation or review the current draft",
+        )
+    hero_id = next((int(token) for token in message.split() if token.rstrip(".").isdigit()), None)
+    return ManualImportProblem(code, field, guidance, hero_id=hero_id)
 
 
 def encode_manual_import(draft: DraftState) -> str:

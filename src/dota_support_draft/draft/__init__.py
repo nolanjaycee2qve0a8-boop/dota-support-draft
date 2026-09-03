@@ -3,6 +3,7 @@
 from .manual_import import (
     MANUAL_IMPORT_SCHEMA_VERSION,
     ManualImportAssessment,
+    ManualImportProblem,
     ManualImportStatus,
     assess_pasted_manual_import,
     encode_manual_import,
@@ -36,6 +37,7 @@ __all__ = [
     "ManualDraftSession",
     "MANUAL_IMPORT_SCHEMA_VERSION",
     "ManualImportAssessment",
+    "ManualImportProblem",
     "ManualImportStatus",
     "PAIR_SHORTLIST_SIZE",
     "DraftPairEvidenceService",

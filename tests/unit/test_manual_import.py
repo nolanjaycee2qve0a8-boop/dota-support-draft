@@ -87,7 +87,7 @@ def test_rejected_documents_never_create_a_replacement(
 
     assert assessment.status is ManualImportStatus.REJECTED
     assert not assessment.can_confirm and assessment.draft is None
-    assert assessment.issue is not None and expected_issue in assessment.issue
+    assert assessment.problem is not None
 
 
 def test_unknown_and_stale_observed_times_follow_the_contract(
@@ -106,7 +106,30 @@ def test_unknown_and_stale_observed_times_follow_the_contract(
     assert unknown_assessment.status is ManualImportStatus.NEEDS_CONFIRMATION
     assert unknown_assessment.can_confirm and unknown_assessment.observed_at is None
     assert stale.status is ManualImportStatus.REJECTED
-    assert stale.issue is not None and "Stale snapshot" in stale.issue
+    assert stale.problem is not None and stale.problem.code == "stale"
+
+
+def test_structured_problems_expose_only_safe_location_or_hero_id(
+    heroes: tuple[Hero, ...], patch: Patch
+) -> None:
+    syntax = assess_pasted_manual_import('{"draft":', heroes, patch)
+    hero = assess_pasted_manual_import(_document(allied_hero_ids=[999]), heroes, patch)
+
+    assert syntax.problem is not None
+    assert (syntax.problem.code, syntax.problem.line, syntax.problem.column) == (
+        "json_syntax",
+        1,
+        10,
+    )
+    assert syntax.problem.display_text() == (
+        "JSON syntax: Fix the JSON syntax and try Validate / Preview again. Line 1, column 10."
+    )
+    assert hero.problem is not None
+    assert (hero.problem.code, hero.problem.field_label, hero.problem.hero_id) == (
+        "hero",
+        "hero ID list",
+        999,
+    )
 
 
 def test_confirmed_replacement_clears_manual_composition_atomically(

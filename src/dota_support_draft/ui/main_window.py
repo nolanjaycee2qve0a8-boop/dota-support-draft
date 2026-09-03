@@ -510,10 +510,13 @@ def create_main_window(
                 last_confirmed_import_time,
             )
             if not assessment.can_confirm:
-                clear_import_preview(
-                    "Import rejected: "
-                    f"{assessment.issue or 'invalid document'}. Current draft unchanged."
+                problem_text = (
+                    assessment.problem.display_text()
+                    if assessment.problem is not None
+                    else "invalid document"
                 )
+                clear_import_preview(f"Import rejected: {problem_text}. Current draft unchanged.")
+                manual_import_text.setFocus()
                 return
             pending_import = assessment
             confirm_import.setEnabled(True)

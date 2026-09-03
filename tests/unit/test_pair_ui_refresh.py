@@ -1352,6 +1352,74 @@ def test_manual_import_layout_is_collapsed_and_keeps_draft_controls_accessible()
     window.close()
 
 
+def test_manual_import_template_and_clear_are_editor_only_local_actions() -> None:
+    """Template/clear edit only text and invalidate previews without draft or pair side effects."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    toggle = window.findChild(QPushButton, "toggle-manual-import")
+    text = window.findChild(QTextEdit, "manual-import-text")
+    template = window.findChild(QPushButton, "insert-manual-import-template")
+    clear = window.findChild(QPushButton, "clear-manual-import-text")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    confirm = window.findChild(QPushButton, "confirm-manual-import")
+    table = window.findChild(QTableWidget, "candidate-table")
+    controller = window.pair_refresh_controller
+    assert (
+        toggle is not None
+        and text is not None
+        and template is not None
+        and clear is not None
+        and validate is not None
+        and confirm is not None
+        and table is not None
+        and controller is not None
+    )
+    original = session.to_draft_state()
+    assert not toggle.isChecked()
+    window.activateWindow()
+    app.processEvents()
+    toggle.click()
+    template.click()
+    document = json.loads(text.toPlainText())
+    assert document["schema_version"] == "dota-support-draft/manual-import/v1"
+    assert document["draft"] == {
+        "complete": True,
+        "patch_version": "7.40",
+        "intended_role": "POSITION_4",
+        "allied_hero_ids": [],
+        "enemy_hero_ids": [],
+        "banned_hero_ids": [],
+    }
+    assert text.hasFocus() and table.viewport().height() > 0
+    assert session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+
+    validate.click()
+    assert confirm.isEnabled()
+    template.click()
+    assert not confirm.isEnabled() and session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+
+    validate.click()
+    assert confirm.isEnabled()
+    clear.click()
+    app.processEvents()
+    assert text.toPlainText() == "" and not confirm.isEnabled()
+    assert session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    window.close()
+
+
 def test_local_candidate_display_matrix_has_no_draft_or_pair_side_effects() -> None:
     """Presentation-only candidate controls preserve draft, canonical evidence, and pair state."""
     app = QApplication.instance() or QApplication([])

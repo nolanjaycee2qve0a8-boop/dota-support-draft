@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from html import escape
 
@@ -178,7 +179,19 @@ def create_main_window(
     confirm_import = QPushButton("Confirm and replace draft")
     confirm_import.setObjectName("confirm-manual-import")
     confirm_import.setEnabled(False)
+    insert_import_template = QPushButton("Insert template")
+    insert_import_template.setObjectName("insert-manual-import-template")
+    insert_import_template.setToolTip(
+        "Insert an editable local MANUAL_IMPORT/v1 template; it does not apply a draft."
+    )
+    clear_import_text = QPushButton("Clear import text")
+    clear_import_text.setObjectName("clear-manual-import-text")
+    clear_import_text.setToolTip(
+        "Clear only the pasted import text and preview; the current draft is unchanged."
+    )
     manual_import_controls = QHBoxLayout()
+    manual_import_controls.addWidget(insert_import_template)
+    manual_import_controls.addWidget(clear_import_text)
     manual_import_controls.addWidget(validate_import)
     manual_import_controls.addWidget(cancel_import)
     manual_import_controls.addWidget(confirm_import)
@@ -517,6 +530,31 @@ def create_main_window(
         def invalidate_import_preview_for_text_change() -> None:
             if pending_import is not None:
                 clear_import_preview("Pasted text changed; validate it again before confirming.")
+
+        def insert_manual_import_template() -> None:
+            """Populate only the local editor with a safe, empty import document."""
+            manual_import_text.setPlainText(
+                json.dumps(
+                    {
+                        "schema_version": "dota-support-draft/manual-import/v1",
+                        "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "unknown"},
+                        "draft": {
+                            "complete": True,
+                            "patch_version": session.patch.version,
+                            "intended_role": session.role.value,
+                            "allied_hero_ids": [],
+                            "enemy_hero_ids": [],
+                            "banned_hero_ids": [],
+                        },
+                    },
+                    indent=2,
+                )
+            )
+            manual_import_text.setFocus()
+
+        def clear_manual_import_text() -> None:
+            manual_import_text.clear()
+            clear_import_preview("Import text and preview cleared. Current draft unchanged.")
 
         def update_composition_context() -> None:
             assignments = session.to_draft_state().allied_picks
@@ -1253,6 +1291,8 @@ def create_main_window(
         remove_comparison.clicked.connect(remove_selected_from_comparison)
         clear_comparison_button.clicked.connect(clear_comparison)
         save_composition.clicked.connect(save_ally_composition)
+        insert_import_template.clicked.connect(insert_manual_import_template)
+        clear_import_text.clicked.connect(clear_manual_import_text)
         validate_import.clicked.connect(preview_manual_import)
         cancel_import.clicked.connect(
             lambda: clear_import_preview(
@@ -1318,6 +1358,8 @@ def create_main_window(
             validate_import,
             cancel_import,
             confirm_import,
+            insert_import_template,
+            clear_import_text,
             toggle_import,
         ):
             widget.setEnabled(False)

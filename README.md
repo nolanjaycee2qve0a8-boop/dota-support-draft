@@ -42,6 +42,8 @@ DOTA-033 adds an explicit manual draft-import flow for pasted `MANUAL_IMPORT/v1`
 
 DOTA-035 adds `Copy current draft summary`. It writes a concise local manual-draft summary to the system clipboard only after the user clicks it; it contains patch, intended role, picks, bans, and any explicit ally context—never Tokens, player accounts, recommendation data, import JSON, or provider data.
 
+DOTA-036 adds explicit local JSON file actions inside the collapsed import panel. `Export current draft JSON` writes only `MANUAL_IMPORT/v1` fields with `observed_at: "unknown"`; `Choose JSON import file` only fills the editor and still requires Validate/Preview and Confirm. No paths are remembered, scanned, watched, or transmitted.
+
 ## Windows local Token launch
 
 From the project root, run:

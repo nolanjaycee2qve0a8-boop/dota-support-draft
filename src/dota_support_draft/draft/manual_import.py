@@ -153,3 +153,25 @@ def assess_pasted_manual_import(
         draft=preview,
         observed_at=observed_at,
     )
+
+
+def encode_manual_import(draft: DraftState) -> str:
+    """Encode only the v1 fields for an explicit local export."""
+    return (
+        json.dumps(
+            {
+                "schema_version": MANUAL_IMPORT_SCHEMA_VERSION,
+                "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "unknown"},
+                "draft": {
+                    "complete": True,
+                    "patch_version": draft.patch.version,
+                    "intended_role": draft.intended_role.value,
+                    "allied_hero_ids": [pick.hero.hero_id for pick in draft.allied_picks],
+                    "enemy_hero_ids": [pick.hero.hero_id for pick in draft.enemy_picks],
+                    "banned_hero_ids": sorted(hero.hero_id for hero in draft.banned_heroes),
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )

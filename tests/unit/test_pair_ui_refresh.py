@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import dota_support_draft.ui.main_window as main_window_module
 from dota_support_draft.domain import (
     CounterEvidence,
     DataProvenance,
@@ -1455,6 +1456,72 @@ def test_copy_draft_summary_writes_only_manual_context_without_pair_side_effects
     assert session.to_draft_state() == original
     assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
     assert controller.findChildren(QThread) == []
+    window.close()
+
+
+def test_explicit_json_file_actions_only_export_or_fill_import_editor(
+    tmp_path, monkeypatch
+) -> None:
+    """Chooser-selected files never validate or apply a draft without the existing confirmation."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_enemy(heroes[0])
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=0,
+    )
+    window.show()
+    toggle = window.findChild(QPushButton, "toggle-manual-import")
+    export = window.findChild(QPushButton, "export-manual-draft-json")
+    choose = window.findChild(QPushButton, "choose-manual-import-file")
+    text = window.findChild(QTextEdit, "manual-import-text")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    confirm = window.findChild(QPushButton, "confirm-manual-import")
+    controller = window.pair_refresh_controller
+    assert (
+        toggle is not None
+        and export is not None
+        and choose is not None
+        and text is not None
+        and validate is not None
+        and confirm is not None
+        and controller is not None
+    )
+    output = tmp_path / "draft.json"
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getSaveFileName",
+        lambda *args: (str(output), "JSON files (*.json)"),
+    )
+    original = session.to_draft_state()
+    export.click()
+    exported = json.loads(output.read_text(encoding="utf-8"))
+    assert exported["provenance"]["observed_at"] == "unknown"
+    assert exported["draft"]["enemy_hero_ids"] == [1]
+    assert session.to_draft_state() == original
+
+    toggle.click()
+    text.setPlainText(output.read_text(encoding="utf-8"))
+    validate.click()
+    assert confirm.isEnabled()
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getOpenFileName",
+        lambda *args: (str(output), "JSON files (*.json)"),
+    )
+    choose.click()
+    app.processEvents()
+    assert text.toPlainText() == output.read_text(encoding="utf-8")
+    assert not confirm.isEnabled() and session.to_draft_state() == original
+    assert service.calls == 0 and controller.generation == 0 and controller.active_thread is None
+    monkeypatch.setattr(main_window_module.QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+    choose.click()
+    assert session.to_draft_state() == original
     window.close()
 
 

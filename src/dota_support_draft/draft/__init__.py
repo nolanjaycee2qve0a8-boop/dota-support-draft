@@ -5,6 +5,7 @@ from .manual_import import (
     ManualImportAssessment,
     ManualImportStatus,
     assess_pasted_manual_import,
+    encode_manual_import,
 )
 from .pair_evidence import (
     PAIR_SHORTLIST_SIZE,
@@ -43,6 +44,7 @@ __all__ = [
     "PairEvidenceResult",
     "build_candidate_rows",
     "assess_pasted_manual_import",
+    "encode_manual_import",
     "filter_candidates",
     "format_optional_count",
     "format_optional_rate",

@@ -44,6 +44,8 @@ DOTA-035 adds `Copy current draft summary`. It writes a concise local manual-dra
 
 DOTA-036 adds explicit local JSON file actions inside the collapsed import panel. `Export current draft JSON` writes only `MANUAL_IMPORT/v1` fields with `observed_at: "unknown"`; `Choose JSON import file` only fills the editor and still requires Validate/Preview and Confirm. No paths are remembered, scanned, watched, or transmitted.
 
+DOTA-037 gives rejected manual imports safe repair guidance: JSON syntax reports line/column; schema, patch, role, timestamp, and hero-list problems report a field and next action; hero errors may show only the numeric ID. It never echoes pasted text, paths, Tokens, accounts, or provider details.
+
 ## Windows local Token launch
 
 From the project root, run:

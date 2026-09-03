@@ -12,6 +12,7 @@ from dota_support_draft.draft import (
     ManualDraftSession,
     ManualImportStatus,
     assess_pasted_manual_import,
+    encode_manual_import,
 )
 
 
@@ -125,3 +126,28 @@ def test_confirmed_replacement_clears_manual_composition_atomically(
     assert [hero.hero_id for hero in session.enemies] == [4]
     assert {hero.hero_id for hero in session.bans} == {2}
     assert session.ally_assignments == {}
+
+
+def test_export_encoder_is_v1_and_excludes_non_v1_context(
+    heroes: tuple[Hero, ...], patch: Patch
+) -> None:
+    session = ManualDraftSession(heroes, patch)
+    session.add_ally(heroes[0])
+    session.add_enemy(heroes[1])
+    session.ban(heroes[2])
+    session.set_ally_assignment(heroes[0], TeamPosition.POSITION_1, PlannedLane.SAFE)
+
+    document = json.loads(encode_manual_import(session.to_draft_state()))
+
+    assert document == {
+        "schema_version": "dota-support-draft/manual-import/v1",
+        "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "unknown"},
+        "draft": {
+            "complete": True,
+            "patch_version": "7.40",
+            "intended_role": "POSITION_4",
+            "allied_hero_ids": [1],
+            "enemy_hero_ids": [2],
+            "banned_hero_ids": [3],
+        },
+    }

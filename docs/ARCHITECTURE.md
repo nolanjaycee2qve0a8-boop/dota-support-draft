@@ -44,6 +44,8 @@ DOTA-034's template and clear controls are editor-only operations inside that ex
 
 DOTA-035 formats `DraftState` through a local `draft.summary` presentation function and writes that text only after an explicit UI click. The formatter accepts only patch/role, hero display names, and explicit manual ally context; it has no provider, account, recommendation, import-text, or clipboard-read dependency. Copying never changes session state or invokes the pair controller.
 
+DOTA-036's JSON encoder has only the approved v1 fields and always emits `observed_at: "unknown"`. Qt file choosers are the sole path source: a chosen import is synchronously read into the existing editor and remains inert until the existing preview/confirmation flow; a chosen export writes the encoder output. Paths are local to each click, are never persisted or reported, and read/write failures leave draft and pending preview state intact.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

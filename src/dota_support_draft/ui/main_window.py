@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from html import escape
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -51,6 +53,7 @@ from dota_support_draft.draft import (
     PairEvidenceResult,
     assess_pasted_manual_import,
     build_candidate_rows,
+    encode_manual_import,
     filter_candidates,
     format_manual_draft_summary,
     format_optional_rate,
@@ -191,14 +194,24 @@ def create_main_window(
     clear_import_text.setToolTip(
         "Clear only the pasted import text and preview; the current draft is unchanged."
     )
+    choose_import_file = QPushButton("Choose JSON import file")
+    choose_import_file.setObjectName("choose-manual-import-file")
+    export_draft_file = QPushButton("Export current draft JSON")
+    export_draft_file.setObjectName("export-manual-draft-json")
     manual_import_controls = QHBoxLayout()
     manual_import_controls.addWidget(insert_import_template)
     manual_import_controls.addWidget(clear_import_text)
+    manual_import_controls.addWidget(choose_import_file)
+    manual_import_controls.addWidget(export_draft_file)
     manual_import_controls.addWidget(validate_import)
     manual_import_controls.addWidget(cancel_import)
     manual_import_controls.addWidget(confirm_import)
     manual_import_layout.addWidget(manual_import_text)
     manual_import_layout.addWidget(manual_import_preview)
+    manual_import_file_status = QLabel("Files are chosen explicitly; no path is remembered.")
+    manual_import_file_status.setObjectName("manual-import-file-status")
+    manual_import_file_status.setWordWrap(True)
+    manual_import_layout.addWidget(manual_import_file_status)
     manual_import_layout.addLayout(manual_import_controls)
     manual_import_entry = QWidget()
     manual_import_entry.setObjectName("manual-import-entry")
@@ -566,6 +579,49 @@ def create_main_window(
         def clear_manual_import_text() -> None:
             manual_import_text.clear()
             clear_import_preview("Import text and preview cleared. Current draft unchanged.")
+
+        def choose_manual_import_file() -> None:
+            path, _ = QFileDialog.getOpenFileName(
+                window, "Choose manual draft JSON", "", "JSON files (*.json);;All files (*)"
+            )
+            if not path:
+                manual_import_file_status.setText(
+                    "No import file selected. Current draft unchanged."
+                )
+                return
+            try:
+                text = Path(path).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                manual_import_file_status.setText(
+                    "Could not read the selected JSON file. Current draft unchanged."
+                )
+                return
+            toggle_import.setChecked(True)
+            manual_import_text.setPlainText(text)
+            manual_import_text.setFocus()
+            manual_import_file_status.setText(
+                "JSON file loaded into the editor. Validate / Preview before any draft change."
+            )
+
+        def export_current_draft_file() -> None:
+            path, _ = QFileDialog.getSaveFileName(
+                window, "Export manual draft JSON", "manual-draft.json", "JSON files (*.json)"
+            )
+            if not path:
+                manual_import_file_status.setText("Export cancelled. Current draft unchanged.")
+                return
+            try:
+                Path(path).write_text(
+                    encode_manual_import(session.to_draft_state()), encoding="utf-8"
+                )
+            except OSError:
+                manual_import_file_status.setText(
+                    "Could not write the selected JSON file. Current draft unchanged."
+                )
+                return
+            manual_import_file_status.setText(
+                "Manual draft JSON exported. Ally position/lane context is not included in v1."
+            )
 
         def update_composition_context() -> None:
             assignments = session.to_draft_state().allied_picks
@@ -1309,6 +1365,8 @@ def create_main_window(
         save_composition.clicked.connect(save_ally_composition)
         insert_import_template.clicked.connect(insert_manual_import_template)
         clear_import_text.clicked.connect(clear_manual_import_text)
+        choose_import_file.clicked.connect(choose_manual_import_file)
+        export_draft_file.clicked.connect(export_current_draft_file)
         validate_import.clicked.connect(preview_manual_import)
         cancel_import.clicked.connect(
             lambda: clear_import_preview(
@@ -1377,6 +1435,8 @@ def create_main_window(
             confirm_import,
             insert_import_template,
             clear_import_text,
+            choose_import_file,
+            export_draft_file,
             toggle_import,
         ):
             widget.setEnabled(False)

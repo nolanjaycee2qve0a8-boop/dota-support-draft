@@ -26,6 +26,7 @@ from .presentation import (
     sort_candidate_rows,
 )
 from .session import ManualDraftError, ManualDraftSession
+from .summary import format_manual_draft_summary
 
 __all__ = [
     "CandidateRow",
@@ -46,6 +47,7 @@ __all__ = [
     "format_optional_count",
     "format_optional_rate",
     "format_player_status",
+    "format_manual_draft_summary",
     "make_pair_input",
     "select_pair_shortlist",
     "sort_candidate_rows",

@@ -42,6 +42,8 @@ DOTA-033 places pasted `MANUAL_IMPORT/v1` text at a local `draft.manual_import` 
 
 DOTA-034's template and clear controls are editor-only operations inside that expanded panel. The template is generated from the already loaded patch and candidate P4/P5 role with empty hero arrays; neither control validates, previews, confirms, replaces `DraftState`, nor schedules pair work. A text edit invalidates any pending assessment before it can be confirmed.
 
+DOTA-035 formats `DraftState` through a local `draft.summary` presentation function and writes that text only after an explicit UI click. The formatter accepts only patch/role, hero display names, and explicit manual ally context; it has no provider, account, recommendation, import-text, or clipboard-read dependency. Copying never changes session state or invokes the pair controller.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

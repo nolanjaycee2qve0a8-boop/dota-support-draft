@@ -253,6 +253,7 @@ def create_main_window(
     snapshot_name.setPlaceholderText("Snapshot name (local only)")
     snapshot_list = QListWidget()
     snapshot_list.setObjectName("local-snapshot-list")
+    snapshot_list.setMinimumHeight(82)
     snapshot_list.setMaximumHeight(110)
     snapshot_status = QLabel("No local snapshot selected. Current draft is unchanged.")
     snapshot_status.setObjectName("local-snapshot-status")
@@ -285,6 +286,7 @@ def create_main_window(
     snapshot_layout.addWidget(snapshot_list)
     snapshot_layout.addWidget(snapshot_status)
     snapshot_layout.addLayout(snapshot_controls)
+    snapshot_section.setMinimumHeight(225)
     composition_panel = QTextEdit()
     composition_panel.setObjectName("composition-context")
     composition_panel.setReadOnly(True)
@@ -571,13 +573,17 @@ def create_main_window(
             manual_import_section.setVisible(expanded)
             toggle_import.setText("Hide import" if expanded else "Show import")
             if expanded:
-                content_splitter.setSizes([210, 120, 280, 150, 180])
+                content_splitter.setSizes([210, 0, 120, 280, 150, 180])
+            else:
+                content_splitter.setSizes([0, 0, 120, 330, 150, 180])
 
         def set_snapshots_expanded(expanded: bool) -> None:
             snapshot_section.setVisible(expanded)
             toggle_snapshots.setText("Hide snapshots" if expanded else "Show snapshots")
             if expanded:
-                content_splitter.setSizes([0, 180, 110, 280, 150, 180])
+                content_splitter.setSizes([0, 260, 110, 280, 150, 180])
+            else:
+                content_splitter.setSizes([0, 0, 120, 330, 150, 180])
 
         def selected_snapshot() -> LocalDraftSnapshot | None:
             item = snapshot_list.currentItem()

@@ -1,7 +1,14 @@
 from datetime import date
 
 from PySide6.QtCore import QThread
-from PySide6.QtWidgets import QApplication, QLineEdit, QListWidget, QPushButton, QTableWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLineEdit,
+    QListWidget,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+)
 
 from dota_support_draft.config import LocalDraftSnapshot, SnapshotStoreRead, normalize_snapshot_name
 from dota_support_draft.domain import Hero, Patch, PlannedLane, TeamPosition
@@ -146,4 +153,43 @@ def test_existing_snapshot_metadata_never_applies_at_window_start() -> None:
         and pair_service.calls == 0
         and controller.findChildren(QThread) == []
     )
+    window.close()
+
+
+def test_expanded_snapshot_list_has_clickable_geometry_and_collapses_cleanly() -> None:
+    """The explicitly expanded list keeps two saved snapshots visible and selectable."""
+    app = QApplication.instance() or QApplication([])
+    heroes = (Hero(1, "hero_one", "Hero One"), Hero(2, "hero_two", "Hero Two"))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    ally_snapshot = ManualDraftSession(heroes, patch)
+    ally_snapshot.add_ally(heroes[0])
+    enemy_snapshot = ManualDraftSession(heroes, patch)
+    enemy_snapshot.add_enemy(heroes[1])
+    store = MemorySnapshotStore()
+    store.snapshots = (
+        LocalDraftSnapshot("ally opening", ally_snapshot.to_draft_state()),
+        LocalDraftSnapshot("enemy opening", enemy_snapshot.to_draft_state()),
+    )
+    window = create_main_window(ManualDraftSession(heroes, patch), snapshot_store=store)
+    window.resize(1200, 900)
+    window.show()
+    toggle = _button(window, "toggle-local-snapshots")
+    saved = window.findChild(QListWidget, "local-snapshot-list")
+    splitter = window.findChild(QSplitter, "draft-content-splitter")
+    assert saved is not None and splitter is not None and not saved.isVisible()
+
+    toggle.click()
+    app.processEvents()
+    assert saved.isVisible() and saved.height() >= 82 and saved.viewport().height() >= 70
+    assert saved.count() == 2
+    assert saved.visualItemRect(saved.item(0)).height() > 0
+    assert saved.visualItemRect(saved.item(1)).height() > 0
+    saved.setCurrentRow(1)
+    assert saved.currentItem() is not None and "enemy opening" in saved.currentItem().text()
+    assert _button(window, "preview-local-snapshot").isEnabled()
+    assert _button(window, "delete-local-snapshot").isEnabled()
+
+    toggle.click()
+    app.processEvents()
+    assert not saved.isVisible() and splitter.sizes()[1] == 0
     window.close()

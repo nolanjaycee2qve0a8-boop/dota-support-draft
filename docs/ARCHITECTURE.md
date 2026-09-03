@@ -48,7 +48,9 @@ DOTA-036's JSON encoder has only the approved v1 fields and always emits `observ
 
 DOTA-037 adds `ManualImportProblem` at the same contract boundary. It converts parse/validation failures into a code, safe field label, recovery guidance, optional syntax line/column, and optional numeric hero ID. UI error presentation uses that structured data and returns focus to the local editor; it never renders raw JSON, file paths, OS errors, Tokens, accounts, or provider details, and does not schedule pair work.
 
-DOTA-038 retains at most one prior local `DraftState` and one redo state in the main-window presentation layer. Restore uses the existing session replacement path, which clears manual ally context and does not retain pair overlay or controller state; it then schedules only the normal current-context refresh.
+DOTA-038 retains at most one prior local `DraftState` and one redo state in the main-window presentation layer. Restore uses the existing session replacement path, which never restores manual ally context and retains only assignments that remain valid for current allied picks; it does not retain pair overlay or controller state, then schedules only the normal current-context refresh.
+
+DOTA-039 adds an explicit current-user QSettings snapshot boundary. Its versioned JSON document encodes a validated name plus only DraftState patch, P4/P5 role, and allied/enemy/ban hero IDs; it rejects malformed, incompatible, duplicate, over-limit, path-like, unknown, inactive, or overlapping data before it can affect the session. Snapshot list metadata is inert at startup. Save, Preview, Confirm load, and Delete are the only UI actions that access the store; Preview/Cancel/Delete and failures never mutate `DraftState` or schedule pair work. Confirmed load runs `replace_draft_state_only` as one history step, preserving only still-valid manual ally context and using the existing current-context pair refresh rather than restoring evidence or workers.
 
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 

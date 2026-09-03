@@ -29,7 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from dota_support_draft.config import PlayerAccountPreferenceStore
+from dota_support_draft.config import (
+    DraftSnapshotStore,
+    LocalDraftSnapshot,
+    PlayerAccountPreferenceStore,
+)
 from dota_support_draft.domain import (
     CounterEvidence,
     DraftState,
@@ -99,6 +103,7 @@ def create_main_window(
     stratz_freshness_warning: str | None = None,
     pair_service: DraftPairEvidenceService | None = None,
     player_preferences: PlayerAccountPreferenceStore | None = None,
+    snapshot_store: DraftSnapshotStore | None = None,
     pair_debounce_ms: int = PairEvidenceRefreshController.DEBOUNCE_MS,
 ) -> DraftMainWindow:
     """Build the GUI; all draft mutations are local before pair refresh is scheduled."""
@@ -227,6 +232,59 @@ def create_main_window(
     toggle_import.setToolTip("Show the pasted MANUAL_IMPORT/v1 preview and confirmation controls.")
     manual_import_entry_layout.addWidget(toggle_import)
     layout.addWidget(manual_import_entry)
+    snapshot_entry = QWidget()
+    snapshot_entry.setObjectName("local-snapshot-entry")
+    snapshot_entry_layout = QHBoxLayout(snapshot_entry)
+    snapshot_entry_layout.setContentsMargins(0, 0, 0, 0)
+    snapshot_entry_layout.addWidget(
+        QLabel("Local draft snapshots — manual only; not auto-detected or authoritative.")
+    )
+    toggle_snapshots = QPushButton("Show snapshots")
+    toggle_snapshots.setObjectName("toggle-local-snapshots")
+    toggle_snapshots.setCheckable(True)
+    snapshot_entry_layout.addWidget(toggle_snapshots)
+    layout.addWidget(snapshot_entry)
+    snapshot_section = QWidget()
+    snapshot_section.setObjectName("local-snapshot-section")
+    snapshot_layout = QVBoxLayout(snapshot_section)
+    snapshot_layout.setContentsMargins(0, 0, 0, 0)
+    snapshot_name = QLineEdit()
+    snapshot_name.setObjectName("local-snapshot-name")
+    snapshot_name.setPlaceholderText("Snapshot name (local only)")
+    snapshot_list = QListWidget()
+    snapshot_list.setObjectName("local-snapshot-list")
+    snapshot_list.setMaximumHeight(110)
+    snapshot_status = QLabel("No local snapshot selected. Current draft is unchanged.")
+    snapshot_status.setObjectName("local-snapshot-status")
+    snapshot_status.setWordWrap(True)
+    save_snapshot = QPushButton("Save snapshot")
+    save_snapshot.setObjectName("save-local-snapshot")
+    preview_snapshot = QPushButton("Preview selected snapshot")
+    preview_snapshot.setObjectName("preview-local-snapshot")
+    cancel_snapshot_load = QPushButton("Cancel snapshot load")
+    cancel_snapshot_load.setObjectName("cancel-local-snapshot-load")
+    confirm_snapshot_load = QPushButton("Confirm load snapshot")
+    confirm_snapshot_load.setObjectName("confirm-local-snapshot-load")
+    delete_snapshot = QPushButton("Delete selected snapshot")
+    delete_snapshot.setObjectName("delete-local-snapshot")
+    cancel_snapshot_load.setEnabled(False)
+    confirm_snapshot_load.setEnabled(False)
+    snapshot_controls = QHBoxLayout()
+    for button in (
+        save_snapshot,
+        preview_snapshot,
+        cancel_snapshot_load,
+        confirm_snapshot_load,
+        delete_snapshot,
+    ):
+        snapshot_controls.addWidget(button)
+    snapshot_layout.addWidget(
+        QLabel("Saved DraftState only — no tokens, evidence, cache, player data, or ally context.")
+    )
+    snapshot_layout.addWidget(snapshot_name)
+    snapshot_layout.addWidget(snapshot_list)
+    snapshot_layout.addWidget(snapshot_status)
+    snapshot_layout.addLayout(snapshot_controls)
     composition_panel = QTextEdit()
     composition_panel.setObjectName("composition-context")
     composition_panel.setReadOnly(True)
@@ -443,6 +501,7 @@ def create_main_window(
     comparison_layout.addLayout(comparison_controls)
     comparison_layout.addLayout(comparison_cards)
     content_splitter.addWidget(manual_import_section)
+    content_splitter.addWidget(snapshot_section)
     content_splitter.addWidget(composition_section)
     content_splitter.addWidget(candidate_section)
     content_splitter.addWidget(explanation_panel)
@@ -451,11 +510,13 @@ def create_main_window(
         content_splitter.setCollapsible(index, False)
     content_splitter.setStretchFactor(0, 1)
     content_splitter.setStretchFactor(1, 1)
-    content_splitter.setStretchFactor(2, 5)
-    content_splitter.setStretchFactor(3, 2)
+    content_splitter.setStretchFactor(2, 1)
+    content_splitter.setStretchFactor(3, 5)
     content_splitter.setStretchFactor(4, 2)
+    content_splitter.setStretchFactor(5, 2)
     manual_import_section.setVisible(False)
-    content_splitter.setSizes([0, 120, 330, 150, 180])
+    snapshot_section.setVisible(False)
+    content_splitter.setSizes([0, 0, 120, 330, 150, 180])
     layout.addWidget(content_splitter, 1)
     if session is not None:
         rendered_rows: list[CandidateRow] = []
@@ -471,6 +532,8 @@ def create_main_window(
         comparison_hero_ids: list[int] = []
         comparison_rows_by_id: dict[int, CandidateRow] = {}
         pending_import: ManualImportAssessment | None = None
+        pending_snapshot: LocalDraftSnapshot | None = None
+        snapshots_by_name: dict[str, LocalDraftSnapshot] = {}
         last_confirmed_import_time = None
         undo_snapshot: DraftState | None = None
         redo_snapshot: DraftState | None = None
@@ -509,6 +572,149 @@ def create_main_window(
             toggle_import.setText("Hide import" if expanded else "Show import")
             if expanded:
                 content_splitter.setSizes([210, 120, 280, 150, 180])
+
+        def set_snapshots_expanded(expanded: bool) -> None:
+            snapshot_section.setVisible(expanded)
+            toggle_snapshots.setText("Hide snapshots" if expanded else "Show snapshots")
+            if expanded:
+                content_splitter.setSizes([0, 180, 110, 280, 150, 180])
+
+        def selected_snapshot() -> LocalDraftSnapshot | None:
+            item = snapshot_list.currentItem()
+            return snapshots_by_name.get(item.data(Qt.ItemDataRole.UserRole)) if item else None
+
+        def set_snapshot_load_preview(message: str) -> None:
+            nonlocal pending_snapshot
+            pending_snapshot = None
+            confirm_snapshot_load.setEnabled(False)
+            cancel_snapshot_load.setEnabled(False)
+            snapshot_status.setText(message)
+
+        def describe_snapshot(snapshot: LocalDraftSnapshot) -> str:
+            draft = snapshot.draft
+            role = "Position 4" if draft.intended_role is Role.POSITION_4 else "Position 5"
+            return (
+                f'"{snapshot.name}" — patch {draft.patch.version}; {role}; '
+                f"allies {len(draft.allied_picks)}, enemies {len(draft.enemy_picks)}, "
+                f"bans {len(draft.banned_heroes)}"
+            )
+
+        def refresh_snapshot_list(message: str | None = None) -> None:
+            nonlocal snapshots_by_name
+            if snapshot_store is None:
+                snapshot_list.clear()
+                snapshot_status.setText("Local snapshot storage is unavailable in this window.")
+                return
+            read = snapshot_store.load_snapshots()
+            snapshots_by_name = {snapshot.name: snapshot for snapshot in read.snapshots}
+            selected_item = snapshot_list.currentItem()
+            selected_name = (
+                str(selected_item.data(Qt.ItemDataRole.UserRole))
+                if selected_item is not None
+                else None
+            )
+            snapshot_list.clear()
+            for snapshot in read.snapshots:
+                item = QListWidgetItem(describe_snapshot(snapshot))
+                item.setData(Qt.ItemDataRole.UserRole, snapshot.name)
+                snapshot_list.addItem(item)
+                if snapshot.name == selected_name:
+                    snapshot_list.setCurrentItem(item)
+            if read.problem is not None:
+                set_snapshot_load_preview(read.problem)
+            elif message is not None:
+                snapshot_status.setText(message)
+            elif not read.snapshots:
+                snapshot_status.setText("No local snapshots saved. Current draft is unchanged.")
+            else:
+                snapshot_status.setText(
+                    f"{len(read.snapshots)} local snapshot(s) available; select one to preview."
+                )
+
+        def save_current_snapshot() -> None:
+            if snapshot_store is None:
+                snapshot_status.setText("Local snapshot storage is unavailable in this window.")
+                return
+            try:
+                snapshot_store.save_snapshot(
+                    LocalDraftSnapshot(snapshot_name.text(), session.to_draft_state())
+                )
+            except (RuntimeError, ValueError) as error:
+                snapshot_status.setText(str(error))
+                return
+            snapshot_name.clear()
+            refresh_snapshot_list("Snapshot saved locally. Current draft is unchanged.")
+
+        def preview_selected_snapshot() -> None:
+            nonlocal pending_snapshot
+            snapshot = selected_snapshot()
+            if snapshot is None:
+                snapshot_status.setText(
+                    "Select a saved snapshot first. Current draft is unchanged."
+                )
+                return
+            if snapshot.draft.patch != session.patch:
+                snapshot_status.setText(
+                    "Selected snapshot uses a different patch and cannot be loaded. "
+                    "Current draft is unchanged."
+                )
+                return
+            pending_snapshot = snapshot
+            confirm_snapshot_load.setEnabled(True)
+            cancel_snapshot_load.setEnabled(True)
+            snapshot_status.setText(
+                "Load preview: "
+                + describe_snapshot(snapshot)
+                + ". Confirm replaces only picks, bans, and role. Manual ally context, "
+                "evidence, and pair results are not restored."
+            )
+
+        def apply_snapshot_load() -> None:
+            snapshot = pending_snapshot
+            if snapshot is None:
+                set_snapshot_load_preview(
+                    "No snapshot load preview is available. Current draft is unchanged."
+                )
+                return
+            try:
+                before = session.to_draft_state()
+                session.replace_draft_state_only(snapshot.draft)
+            except ValueError:
+                set_snapshot_load_preview(
+                    "Snapshot could not be loaded. Current draft is unchanged."
+                )
+                return
+            record_draft_change(before)
+            invalidate_import_preview_for_draft_change()
+            four.setChecked(session.role is Role.POSITION_4)
+            five.setChecked(session.role is Role.POSITION_5)
+            refresh()
+            update_draft_action_controls("Loaded local manual snapshot.")
+            set_snapshot_load_preview(
+                "Snapshot loaded. Manual ally context was not restored; "
+                "pair evidence refreshes normally."
+            )
+            trigger_pair_refresh()
+
+        def delete_selected_snapshot() -> None:
+            if snapshot_store is None:
+                snapshot_status.setText("Local snapshot storage is unavailable in this window.")
+                return
+            snapshot = selected_snapshot()
+            if snapshot is None:
+                snapshot_status.setText(
+                    "Select a saved snapshot first. Current draft is unchanged."
+                )
+                return
+            try:
+                snapshot_store.delete_snapshot(snapshot.name)
+            except (RuntimeError, ValueError) as error:
+                snapshot_status.setText(str(error))
+                return
+            set_snapshot_load_preview(
+                "Selected local snapshot deleted. Current draft is unchanged."
+            )
+            refresh_snapshot_list("Selected local snapshot deleted. Current draft is unchanged.")
 
         def clear_import_preview(message: str, *, collapse: bool = False) -> None:
             nonlocal pending_import
@@ -1427,6 +1633,15 @@ def create_main_window(
             )
         )
         confirm_import.clicked.connect(confirm_manual_import)
+        save_snapshot.clicked.connect(save_current_snapshot)
+        preview_snapshot.clicked.connect(preview_selected_snapshot)
+        cancel_snapshot_load.clicked.connect(
+            lambda: set_snapshot_load_preview(
+                "Snapshot load cancelled. Current draft is unchanged."
+            )
+        )
+        confirm_snapshot_load.clicked.connect(apply_snapshot_load)
+        delete_snapshot.clicked.connect(delete_selected_snapshot)
         configure_player.clicked.connect(save_player_account)
         clear_player.clicked.connect(clear_player_account)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
@@ -1436,6 +1651,7 @@ def create_main_window(
         search.returnPressed.connect(focus_candidate_table)
         manual_import_text.textChanged.connect(invalidate_import_preview_for_text_change)
         toggle_import.toggled.connect(set_import_expanded)
+        toggle_snapshots.toggled.connect(set_snapshots_expanded)
         candidates.itemSelectionChanged.connect(update_recommendation_explanation)
         candidates.itemSelectionChanged.connect(update_comparison_controls)
         allies.itemSelectionChanged.connect(sync_composition_controls)
@@ -1455,6 +1671,18 @@ def create_main_window(
             saved_account_id = player_preferences.load_account_id()
             if saved_account_id is not None:
                 player_account_input.setText(saved_account_id)
+        if snapshot_store is None:
+            for widget in (
+                snapshot_name,
+                snapshot_list,
+                save_snapshot,
+                preview_snapshot,
+                cancel_snapshot_load,
+                confirm_snapshot_load,
+                delete_snapshot,
+            ):
+                widget.setEnabled(False)
+        refresh_snapshot_list()
         refresh()
         update_candidate_sort_status()
         update_draft_history_controls()
@@ -1494,6 +1722,14 @@ def create_main_window(
             choose_import_file,
             export_draft_file,
             toggle_import,
+            snapshot_name,
+            snapshot_list,
+            save_snapshot,
+            preview_snapshot,
+            cancel_snapshot_load,
+            confirm_snapshot_load,
+            delete_snapshot,
+            toggle_snapshots,
         ):
             widget.setEnabled(False)
     window.setCentralWidget(contents)

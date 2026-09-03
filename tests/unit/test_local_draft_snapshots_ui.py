@@ -1,13 +1,17 @@
 from datetime import date
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QPoint, QRect, QThread
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
+    QTextEdit,
 )
 
 from dota_support_draft.config import LocalDraftSnapshot, SnapshotStoreRead, normalize_snapshot_name
@@ -48,6 +52,14 @@ def _button(window, name: str) -> QPushButton:
     button = window.findChild(QPushButton, name)
     assert button is not None
     return button
+
+
+def _global_rect(widget) -> QRect:
+    return QRect(widget.mapToGlobal(QPoint(0, 0)), widget.size())
+
+
+def _assert_not_overlapping(first, second) -> None:
+    assert not _global_rect(first).intersects(_global_rect(second))
 
 
 def test_explicit_local_snapshot_save_preview_cancel_load_delete_and_history_are_local() -> None:
@@ -192,4 +204,78 @@ def test_expanded_snapshot_list_has_clickable_geometry_and_collapses_cleanly() -
     toggle.click()
     app.processEvents()
     assert not saved.isVisible() and splitter.sizes()[1] == 0
+    window.close()
+
+
+def test_constrained_window_scrolls_without_snapshot_or_import_overlap() -> None:
+    """A 664px-tall window scrolls instead of compressing expanded local sections."""
+    app = QApplication.instance() or QApplication([])
+    heroes = (Hero(1, "hero_one", "Hero One"), Hero(2, "hero_two", "Hero Two"))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    first = ManualDraftSession(heroes, patch)
+    first.add_ally(heroes[0])
+    second = ManualDraftSession(heroes, patch)
+    second.add_enemy(heroes[1])
+    store = MemorySnapshotStore()
+    store.snapshots = (
+        LocalDraftSnapshot("first", first.to_draft_state()),
+        LocalDraftSnapshot("second", second.to_draft_state()),
+    )
+    window = create_main_window(ManualDraftSession(heroes, patch), snapshot_store=store)
+    window.resize(2559, 664)
+    window.show()
+    app.processEvents()
+    toggle_snapshots = _button(window, "toggle-local-snapshots")
+    toggle_snapshots.click()
+    app.processEvents()
+
+    scroll = window.findChild(QScrollArea, "main-window-scroll-area")
+    saved = window.findChild(QListWidget, "local-snapshot-list")
+    search = window.findChild(QLineEdit, "candidate-search")
+    team_position = window.findChild(QComboBox, "ally-team-position")
+    planned_lane = window.findChild(QComboBox, "ally-planned-lane")
+    assert (
+        scroll is not None
+        and saved is not None
+        and search is not None
+        and team_position is not None
+        and planned_lane is not None
+    )
+    assert scroll.verticalScrollBar().maximum() > 0
+    assert saved.isVisible() and saved.height() >= 82 and saved.count() == 2
+
+    snapshot_widgets = (
+        window.findChild(QLineEdit, "local-snapshot-name"),
+        saved,
+        window.findChild(QLabel, "local-snapshot-status"),
+        window.findChild(QPushButton, "save-local-snapshot"),
+        window.findChild(QPushButton, "preview-local-snapshot"),
+        window.findChild(QPushButton, "cancel-local-snapshot-load"),
+        window.findChild(QPushButton, "confirm-local-snapshot-load"),
+        window.findChild(QPushButton, "delete-local-snapshot"),
+    )
+    assert all(widget is not None and not widget.rect().isEmpty() for widget in snapshot_widgets)
+    for widget in snapshot_widgets:
+        assert widget is not None
+        _assert_not_overlapping(widget, search)
+        _assert_not_overlapping(widget, team_position)
+        _assert_not_overlapping(widget, planned_lane)
+    for index, widget in enumerate(snapshot_widgets):
+        assert widget is not None
+        for other in snapshot_widgets[index + 1 :]:
+            assert other is not None
+            _assert_not_overlapping(widget, other)
+
+    toggle_snapshots.click()
+    _button(window, "toggle-manual-import").click()
+    app.processEvents()
+    import_text = window.findChild(QTextEdit, "manual-import-text")
+    import_validate = window.findChild(QPushButton, "validate-manual-import")
+    assert import_text is not None and import_validate is not None
+    _assert_not_overlapping(import_text, search)
+    _assert_not_overlapping(import_text, team_position)
+    _assert_not_overlapping(import_text, planned_lane)
+    _assert_not_overlapping(import_validate, search)
+    _assert_not_overlapping(import_validate, team_position)
+    _assert_not_overlapping(import_validate, planned_lane)
     window.close()

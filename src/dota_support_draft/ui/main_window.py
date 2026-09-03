@@ -15,12 +15,14 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -114,7 +116,9 @@ def create_main_window(
     window = DraftMainWindow()
     window.setWindowTitle("Dota Support Draft Assistant")
     contents = QWidget()
+    contents.setObjectName("main-window-contents")
     layout = QVBoxLayout(contents)
+    layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
     layout.setSpacing(6)
     layout.addWidget(QLabel("Dota Support Draft Assistant"))
     player_label, warning = format_player_status(player, personal_error)
@@ -1738,7 +1742,11 @@ def create_main_window(
             toggle_snapshots,
         ):
             widget.setEnabled(False)
-    window.setCentralWidget(contents)
+    scroll_area = QScrollArea()
+    scroll_area.setObjectName("main-window-scroll-area")
+    scroll_area.setWidgetResizable(True)
+    scroll_area.setWidget(contents)
+    window.setCentralWidget(scroll_area)
     window.setMinimumSize(860, 600)
     window.resize(1050, 760)
     return window

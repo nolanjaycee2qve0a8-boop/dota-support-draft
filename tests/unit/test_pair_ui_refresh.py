@@ -1459,6 +1459,56 @@ def test_copy_draft_summary_writes_only_manual_context_without_pair_side_effects
     window.close()
 
 
+def test_one_step_draft_history_buttons_are_local_and_preserve_context() -> None:
+    """Undo/redo wires one draft step only and never restores pair or composition history."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=10_000,
+    )
+    window.show()
+    table = window.findChild(QTableWidget, "candidate-table")
+    search = window.findChild(QLineEdit, "candidate-search")
+    undo = window.findChild(QPushButton, "draft-undo-action")
+    redo = window.findChild(QPushButton, "draft-redo-action")
+    controller = window.pair_refresh_controller
+    assert table is not None and search is not None and undo is not None and redo is not None
+    assert controller is not None and not undo.isEnabled() and not redo.isEnabled()
+    undo.click()
+    assert controller.generation == 0 and service.calls == 0
+
+    table.selectRow(0)
+    _button(window, "Add Ally").click()
+    assert [hero.hero_id for hero in session.allies] == [1]
+    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 1
+    session.set_ally_assignment(heroes[0], TeamPosition.POSITION_1, PlannedLane.SAFE)
+    _button(window, "Save Ally Context").click()
+    assert controller.generation == 1
+    search.setText("Hero")
+    app.processEvents()
+    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 1
+
+    undo.click()
+    assert session.allies == [] and not undo.isEnabled() and redo.isEnabled()
+    assert (
+        controller.generation == 2 and service.calls == 0 and controller.findChildren(QThread) == []
+    )
+    redo.click()
+    assert [hero.hero_id for hero in session.allies] == [1]
+    assert session.ally_assignments == {}
+    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 3
+    table.selectRow(0)
+    _button(window, "Add Enemy").click()
+    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 4
+    window.close()
+
+
 def test_explicit_json_file_actions_only_export_or_fill_import_editor(
     tmp_path, monkeypatch
 ) -> None:

@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from dota_support_draft.domain import Hero, Patch, PersonalHeroStat, Role
+from dota_support_draft.domain import Hero, Patch, PersonalHeroStat, PlannedLane, Role, TeamPosition
 from dota_support_draft.draft import (
     ManualDraftError,
     ManualDraftSession,
@@ -58,3 +58,13 @@ def test_personal_history_orders_without_role_claim(session, heroes, provenance)
     stats = (PersonalHeroStat(heroes[1], 10, 6, 0.6, None, provenance),)
     row = build_candidate_rows(heroes, stats)[0]
     assert row.hero == heroes[1] and row.personal_matches == 10 and "scoring not" in row.status
+
+
+def test_draft_state_only_replacement_preserves_current_ally_context(session, heroes) -> None:
+    session.add_ally(heroes[0])
+    session.set_ally_assignment(heroes[0], TeamPosition.POSITION_1, PlannedLane.SAFE)
+    snapshot = session.to_draft_state()
+    session.add_enemy(heroes[1])
+    session.replace_draft_state_only(snapshot)
+    assert session.ally_assignments[heroes[0]] == (TeamPosition.POSITION_1, PlannedLane.SAFE)
+    assert session.enemies == []

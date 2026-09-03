@@ -48,6 +48,8 @@ DOTA-036's JSON encoder has only the approved v1 fields and always emits `observ
 
 DOTA-037 adds `ManualImportProblem` at the same contract boundary. It converts parse/validation failures into a code, safe field label, recovery guidance, optional syntax line/column, and optional numeric hero ID. UI error presentation uses that structured data and returns focus to the local editor; it never renders raw JSON, file paths, OS errors, Tokens, accounts, or provider details, and does not schedule pair work.
 
+DOTA-038 retains at most one prior local `DraftState` and one redo state in the main-window presentation layer. Restore uses the existing session replacement path, which clears manual ally context and does not retain pair overlay or controller state; it then schedules only the normal current-context refresh.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

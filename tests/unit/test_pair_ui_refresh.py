@@ -1459,8 +1459,8 @@ def test_copy_draft_summary_writes_only_manual_context_without_pair_side_effects
     window.close()
 
 
-def test_one_step_draft_history_buttons_are_local_and_preserve_context() -> None:
-    """Undo/redo wires one draft step only and never restores pair or composition history."""
+def test_one_step_draft_history_buttons_are_local_and_preserve_current_context() -> None:
+    """History restores only DraftState, leaving valid manual ally context untouched."""
     app = QApplication.instance() or QApplication([])
     heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
     patch = Patch("p", "7.40", date(2026, 1, 1))
@@ -1475,10 +1475,21 @@ def test_one_step_draft_history_buttons_are_local_and_preserve_context() -> None
     window.show()
     table = window.findChild(QTableWidget, "candidate-table")
     search = window.findChild(QLineEdit, "candidate-search")
+    allies = window.findChild(QListWidget, "allied-picks")
+    position = window.findChild(QComboBox, "ally-team-position")
+    lane = window.findChild(QComboBox, "ally-planned-lane")
     undo = window.findChild(QPushButton, "draft-undo-action")
     redo = window.findChild(QPushButton, "draft-redo-action")
     controller = window.pair_refresh_controller
-    assert table is not None and search is not None and undo is not None and redo is not None
+    assert (
+        table is not None
+        and search is not None
+        and allies is not None
+        and position is not None
+        and lane is not None
+        and undo is not None
+        and redo is not None
+    )
     assert controller is not None and not undo.isEnabled() and not redo.isEnabled()
     undo.click()
     assert controller.generation == 0 and service.calls == 0
@@ -1487,25 +1498,101 @@ def test_one_step_draft_history_buttons_are_local_and_preserve_context() -> None
     _button(window, "Add Ally").click()
     assert [hero.hero_id for hero in session.allies] == [1]
     assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 1
-    session.set_ally_assignment(heroes[0], TeamPosition.POSITION_1, PlannedLane.SAFE)
+    allies.setCurrentRow(0)
+    position.setCurrentIndex(position.findData(TeamPosition.POSITION_1))
+    lane.setCurrentIndex(lane.findData(PlannedLane.SAFE))
     _button(window, "Save Ally Context").click()
-    assert controller.generation == 1
+    assert session.ally_assignments[heroes[0]] == (TeamPosition.POSITION_1, PlannedLane.SAFE)
+    assert controller.generation == 1  # Context edits are not draft history or pair refreshes.
     search.setText("Hero")
     app.processEvents()
     assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 1
 
+    radios = {radio.text(): radio for radio in window.findChildren(QRadioButton)}
+    radios["Position 5"].click()
+    assert session.role is Role.POSITION_5 and controller.generation == 2
     undo.click()
-    assert session.allies == [] and not undo.isEnabled() and redo.isEnabled()
+    assert session.role is Role.POSITION_4 and not undo.isEnabled() and redo.isEnabled()
+    assert session.ally_assignments[heroes[0]] == (TeamPosition.POSITION_1, PlannedLane.SAFE)
     assert (
-        controller.generation == 2 and service.calls == 0 and controller.findChildren(QThread) == []
+        controller.generation == 3 and service.calls == 0 and controller.findChildren(QThread) == []
     )
     redo.click()
     assert [hero.hero_id for hero in session.allies] == [1]
-    assert session.ally_assignments == {}
-    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 3
+    assert session.role is Role.POSITION_5
+    assert session.ally_assignments[heroes[0]] == (TeamPosition.POSITION_1, PlannedLane.SAFE)
+    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 4
     table.selectRow(0)
     _button(window, "Add Enemy").click()
-    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 4
+    assert undo.isEnabled() and not redo.isEnabled() and controller.generation == 5
+    window.close()
+
+
+def test_reset_and_confirmed_import_each_record_one_local_history_step() -> None:
+    """Only successful Reset and import confirmation create reversible local draft history."""
+    _app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}", f"Hero {index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    session = ManualDraftSession(heroes, patch)
+    session.add_ally(heroes[0])
+    service = CountingPairService()
+    window = create_main_window(
+        session,
+        evidence_by_role=_role_bundles(heroes, patch),
+        pair_service=service,  # type: ignore[arg-type]
+        pair_debounce_ms=10_000,
+    )
+    window.show()
+    undo = window.findChild(QPushButton, "draft-undo-action")
+    redo = window.findChild(QPushButton, "draft-redo-action")
+    text = window.findChild(QTextEdit, "manual-import-text")
+    validate = window.findChild(QPushButton, "validate-manual-import")
+    confirm = window.findChild(QPushButton, "confirm-manual-import")
+    cancel = window.findChild(QPushButton, "cancel-manual-import")
+    controller = window.pair_refresh_controller
+    assert (
+        undo is not None
+        and redo is not None
+        and text is not None
+        and validate is not None
+        and confirm is not None
+        and cancel is not None
+        and controller is not None
+    )
+
+    _button(window, "Reset Draft").click()
+    assert session.allies == [] and undo.isEnabled() and not redo.isEnabled()
+    undo.click()
+    assert [hero.hero_id for hero in session.allies] == [1]
+    assert not undo.isEnabled() and redo.isEnabled()
+
+    payload = json.dumps(
+        {
+            "schema_version": "dota-support-draft/manual-import/v1",
+            "provenance": {"kind": "MANUAL_IMPORT", "observed_at": "2026-09-02T00:00:00Z"},
+            "draft": {
+                "complete": True,
+                "patch_version": "7.40",
+                "intended_role": "POSITION_5",
+                "allied_hero_ids": [2],
+                "enemy_hero_ids": [3],
+                "banned_hero_ids": [],
+            },
+        }
+    )
+    text.setPlainText(payload)
+    validate.click()
+    assert confirm.isEnabled()
+    cancel.click()  # Preview/cancel is inert: it must not replace the redo history.
+    assert redo.isEnabled() and [hero.hero_id for hero in session.allies] == [1]
+    validate.click()
+    confirm.click()
+    assert [hero.hero_id for hero in session.allies] == [2]
+    assert [hero.hero_id for hero in session.enemies] == [3]
+    assert undo.isEnabled() and not redo.isEnabled()
+    undo.click()
+    assert [hero.hero_id for hero in session.allies] == [1] and session.enemies == []
+    assert redo.isEnabled() and service.calls == 0 and controller.findChildren(QThread) == []
     window.close()
 
 

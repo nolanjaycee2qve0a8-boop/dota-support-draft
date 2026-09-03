@@ -489,6 +489,7 @@ def create_main_window(
             current = session.to_draft_state()
             session.replace_draft_state_only(snapshot)
             undo_snapshot, redo_snapshot = (current, None) if redo else (None, current)
+            invalidate_import_preview_for_draft_change()
             four.setChecked(session.role is Role.POSITION_4)
             five.setChecked(session.role is Role.POSITION_5)
             refresh()

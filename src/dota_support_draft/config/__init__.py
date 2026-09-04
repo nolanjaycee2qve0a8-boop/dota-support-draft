@@ -11,6 +11,11 @@ from .player_preferences import (
     normalize_player_account_id,
     resolve_player_account_id,
 )
+from .session_recovery import (
+    QSettingsSessionRecoveryStore,
+    SessionRecoveryRead,
+    SessionRecoveryStore,
+)
 from .settings import Settings
 
 __all__ = [
@@ -18,7 +23,10 @@ __all__ = [
     "DraftSnapshotStore",
     "LocalDraftSnapshot",
     "QSettingsDraftSnapshotStore",
+    "QSettingsSessionRecoveryStore",
     "SnapshotStoreRead",
+    "SessionRecoveryRead",
+    "SessionRecoveryStore",
     "QSettingsPlayerAccountPreferenceStore",
     "Settings",
     "normalize_player_account_id",

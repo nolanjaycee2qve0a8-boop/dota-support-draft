@@ -14,6 +14,8 @@ Use the desktop `Configure Player` action to save a public numeric Steam32/OpenD
 
 Named manual draft snapshots also use current-user QSettings, outside the workspace. They are local-only and stored only after an explicit Save click; they contain a name plus draft patch/role/pick/ban IDs, never a Token, account, evidence, cache, provider data, path, manual ally context, or history. Snapshot metadata is not applied automatically at startup; Preview then Confirm is required to load it.
 
+Session recovery is a separate current-user QSettings record, outside the workspace. It saves only after a successful draft mutation and contains a timestamp plus patch/role/pick/ban IDs. A restart may display that compatible recovery exists, but it never applies it automatically: use Preview then Confirm, or Discard. Reset Draft clears recovery deliberately.
+
 `STRATZ_RANK_BRACKET` accepts basic STRATZ values or fine values that map explicitly to their basic bucket. For an interactive live-only check, set the token locally and run `./.venv/Scripts/python.exe -m dota_support_draft.stratz_smoke`; never add the token or response payload to the repository.
 
 For desktop validation, launch the app with a local STRATZ token, rapidly add/remove allies or enemies, and verify that the interface remains responsive while pair status progresses through updating/ready/partial/error. Shutdown is cooperative: pending/debounced work is cancelled, while an already-running synchronous HTTP call can finish before its worker thread exits.

@@ -369,7 +369,9 @@ def test_pair_observability_tracks_context_shortlist_role_and_reset() -> None:
     app.processEvents()
     assert "Position 5 | allies 0 | enemies 0" in _label(window, "pair-refresh-context").text()
     assert _label(window, "pair-refresh-coverage").text() == (
-        "Pair coverage: no related picks; Meta/Personal only; no pair enrichment"
+        "Pair coverage: no related picks; no pair enrichment. Base evidence: "
+        "Meta available (current-week role scope); "
+        "Personal unavailable in current loaded evidence."
     )
     window.close()
 
@@ -380,11 +382,11 @@ def test_pair_observability_names_partial_and_error_components() -> None:
     patch = Patch("p", "7.40", date(2026, 1, 1))
 
     for counter_error, synergy_error, expected in (
-        ("counter offline", None, "Counter: unavailable (counter offline); Synergy: available"),
+        ("counter offline", None, "Counter: unavailable for current draft; Synergy: available"),
         (
             "counter offline",
             "synergy offline",
-            "Counter: unavailable (counter offline); Synergy: unavailable (synergy offline)",
+            "Counter: unavailable for current draft; Synergy: unavailable for current draft",
         ),
     ):
         session = ManualDraftSession(heroes, patch)
@@ -441,7 +443,8 @@ def test_pair_actionability_explains_unavailable_service_and_no_related_picks_lo
     assert table is not None and search is not None and controller is not None
     action = _label(window, "pair-refresh-action")
     assert "Add an allied or enemy pick" in action.text()
-    assert "Meta/Personal remain available" in action.text()
+    assert "Base evidence: Meta available" in action.text()
+    assert "Personal unavailable" in action.text()
 
     table.selectRow(0)
     search.setText("hero")
@@ -487,7 +490,7 @@ def test_pair_actionability_explains_loading_partial_retry_and_zero_extra_dispat
     )
     action = _label(window, "pair-refresh-action").text()
     assert "Refresh pair evidence to retry/recalculate this context" in action
-    assert "Meta/Personal remain available" in action
+    assert "Base evidence: Meta available" in action
     assert "counter offline" not in action
     calls, generation = service.calls, controller.generation
 
@@ -523,10 +526,7 @@ def test_pair_actionability_names_both_successful_components() -> None:
         lambda: "Counter and Synergy are available" in _label(window, "pair-refresh-action").text(),
     )
     assert service.calls == 1
-    assert (
-        "Meta/Personal remain independently available"
-        in _label(window, "pair-refresh-action").text()
-    )
+    assert "Base evidence: Meta available" in _label(window, "pair-refresh-action").text()
     window.close()
 
 
@@ -557,7 +557,7 @@ def test_pair_actionability_names_in_progress_state_without_starting_extra_work(
         ),
     )
     assert controller.active_thread is not None
-    assert "Meta/Personal remain available" in _label(window, "pair-refresh-action").text()
+    assert "Base evidence: Meta available" in _label(window, "pair-refresh-action").text()
     window.close()
 
 
@@ -588,7 +588,9 @@ def test_reset_discards_stale_pair_result_without_leaving_old_observability() ->
     )
     assert "allies 0 | enemies 0" in _label(window, "pair-refresh-context").text()
     assert _label(window, "pair-refresh-coverage").text() == (
-        "Pair coverage: no related picks; Meta/Personal only; no pair enrichment"
+        "Pair coverage: no related picks; no pair enrichment. Base evidence: "
+        "Meta available (current-week role scope); "
+        "Personal unavailable in current loaded evidence."
     )
     window.close()
 
@@ -959,7 +961,7 @@ def test_recommendation_explanation_uses_current_role_and_discards_pair_error_on
     _wait(
         app,
         lambda: (
-            "Counter: unavailable (counter offline)"
+            "Counter: unavailable for current draft"
             in _label(window, "pair-refresh-coverage").text()
         ),
     )

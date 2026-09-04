@@ -69,6 +69,12 @@ def _bundles(heroes: tuple[Hero, ...], patch: Patch) -> RoleEvidenceBundles:
     return RoleEvidenceBundles(bundle(Role.POSITION_4), bundle(Role.POSITION_5))
 
 
+def _empty_bundles() -> RoleEvidenceBundles:
+    return RoleEvidenceBundles(
+        RoleEvidenceBundle(Role.POSITION_4), RoleEvidenceBundle(Role.POSITION_5)
+    )
+
+
 def _wait(app: QApplication, predicate) -> None:
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
@@ -100,8 +106,84 @@ def _summary(window) -> QLabel:
     return summary
 
 
+def _pair_status(window, name: str) -> QLabel:
+    label = window.findChild(QLabel, name)
+    assert label is not None
+    return label
+
+
 def _assert_safe_summary(text: str) -> None:
     assert all(term not in text.lower() for term in ("raw provider", "token", "realtime", "live"))
+
+
+@pytest.mark.parametrize(
+    ("has_meta", "has_personal", "expected_meta", "expected_personal"),
+    (
+        (False, False, "Meta unavailable", "Personal unavailable"),
+        (False, True, "Meta unavailable", "Personal available (all-time; role unknown)"),
+        (True, False, "Meta available (current-week role scope)", "Personal unavailable"),
+        (
+            True,
+            True,
+            "Meta available (current-week role scope)",
+            "Personal available (all-time; role unknown)",
+        ),
+    ),
+)
+def test_no_token_pair_surfaces_reuse_independent_base_evidence_capability(
+    has_meta: bool,
+    has_personal: bool,
+    expected_meta: str,
+    expected_personal: str,
+) -> None:
+    """No-token Pair text reports Meta and Personal independently without side effects."""
+    app = QApplication.instance() or QApplication([])
+    heroes = tuple(Hero(index, f"hero_{index}") for index in range(1, 4))
+    patch = Patch("p", "7.40", date(2026, 1, 1))
+    personal = (
+        (
+            PersonalHeroStat(
+                heroes[0],
+                10,
+                6,
+                0.6,
+                0.5,
+                DataProvenance(
+                    "fixture",
+                    datetime.now(UTC),
+                    "fixture",
+                    patch.version,
+                    data_kind="TEST/FIXTURE",
+                ),
+            ),
+        )
+        if has_personal
+        else ()
+    )
+    session = _related_session(heroes, patch)
+    window = create_main_window(
+        session,
+        evidence_by_role=_bundles(heroes, patch) if has_meta else _empty_bundles(),
+        personal_stats=personal,
+    )
+    window.show()
+    before = session.to_draft_state()
+    search = window.findChild(QLineEdit, "candidate-search")
+    assert search is not None and window.pair_refresh_controller is None
+    search.setText("Hero")
+    app.processEvents()
+    assert session.to_draft_state() == before
+
+    for label in (
+        _summary(window),
+        _pair_status(window, "pair-refresh-coverage"),
+        _pair_status(window, "pair-refresh-action"),
+    ):
+        assert expected_meta in label.text()
+        assert expected_personal in label.text()
+        assert "Meta/Personal" not in label.text()
+        _assert_safe_summary(label.text())
+    window.close()
 
 
 def test_capability_summary_is_honest_and_local_across_pending_partial_and_ready_states() -> None:
@@ -152,6 +234,7 @@ def test_capability_summary_is_honest_and_local_across_pending_partial_and_ready
     assert "Counter unavailable for current draft" in summary.text()
     assert "Synergy available for current draft" in summary.text()
     assert "raw provider detail" not in summary.text()
+    assert "raw provider detail" not in _pair_status(window, "pair-refresh-coverage").text()
     calls, generation = service.calls, controller.generation
     search.setText("Hero")
     app.processEvents()
@@ -290,8 +373,13 @@ def test_capability_summary_covers_counter_synergy_result_matrix(
     _button(window, "Refresh pair evidence").click()
     _wait(app, lambda: service.calls == 1 and controller.active_thread is None)
     text = _summary(window).text()
+    coverage = _pair_status(window, "pair-refresh-coverage").text()
+    action = _pair_status(window, "pair-refresh-action").text()
     assert f"Counter {expected_counter} for current draft" in text
     assert f"Synergy {expected_synergy} for current draft" in text
+    assert "raw provider detail" not in coverage and "raw provider detail" not in action
+    _assert_safe_summary(coverage)
+    _assert_safe_summary(action)
     assert controller.generation == 1
     _wait(
         app, lambda: controller.retired_worker_count == 0 and controller.findChildren(QThread) == []

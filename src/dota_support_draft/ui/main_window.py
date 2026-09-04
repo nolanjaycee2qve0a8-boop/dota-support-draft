@@ -137,9 +137,9 @@ def create_main_window(
     pair_label.setObjectName("pair-refresh-status")
     pair_context_label = QLabel("Pair refresh: idle — no related picks")
     pair_context_label.setObjectName("pair-refresh-context")
-    pair_coverage_label = QLabel("Pair coverage: Meta/Personal only; no pair enrichment")
+    pair_coverage_label = QLabel("Pair coverage: no related picks; base evidence status is loading")
     pair_coverage_label.setObjectName("pair-refresh-coverage")
-    pair_action_label = QLabel("Pair action: Meta/Personal remain available without pair evidence.")
+    pair_action_label = QLabel("Pair action: base evidence status is loading.")
     pair_action_label.setObjectName("pair-refresh-action")
     pair_action_label.setWordWrap(True)
     evidence_capability_summary = QLabel(
@@ -1292,6 +1292,21 @@ def create_main_window(
                 return EvidenceSet(base.role_meta, overlay_counters, overlay_synergies)
             return EvidenceSet(role_meta=base.role_meta)
 
+        def base_evidence_capability() -> str:
+            """Describe independently loaded base evidence without scheduling any work."""
+            base = evidence_by_role.for_role(session.role).evidence
+            meta = (
+                "available (current-week role scope)"
+                if base.role_meta
+                else "unavailable in current loaded evidence"
+            )
+            personal = (
+                "available (all-time; role unknown)"
+                if personal_stats
+                else "unavailable in current loaded evidence"
+            )
+            return f"Meta {meta}; Personal {personal}"
+
         def describe_pair_observability() -> None:
             input_data = pair_input()
             context = input_data.context
@@ -1308,7 +1323,8 @@ def create_main_window(
             )
             if not related:
                 pair_coverage_label.setText(
-                    "Pair coverage: no related picks; Meta/Personal only; no pair enrichment"
+                    "Pair coverage: no related picks; no pair enrichment. Base evidence: "
+                    f"{base_evidence_capability()}."
                 )
                 return
             current_result = (
@@ -1321,7 +1337,7 @@ def create_main_window(
                 if not requested:
                     return f"{name}: not requested"
                 if error:
-                    return f"{name}: unavailable ({error})"
+                    return f"{name}: unavailable for current draft"
                 if current_result is not None:
                     return f"{name}: available"
                 if pair_state in (PairRefreshState.DEBOUNCING, PairRefreshState.LOADING):
@@ -1346,7 +1362,9 @@ def create_main_window(
                         ),
                     )
                 )
-                + ". Meta/Personal remain available without pair enrichment."
+                + ". Base evidence: "
+                + base_evidence_capability()
+                + "."
             )
 
         def update_pair_actionability() -> None:
@@ -1360,32 +1378,33 @@ def create_main_window(
             if pair_service is None:
                 pair_action_label.setText(
                     "Pair action: The STRATZ pair-refresh service is unavailable in this session. "
-                    "Meta/Personal remain available without pair evidence."
+                    f"Base evidence: {base_evidence_capability()}."
                 )
                 return
             if pair_state is PairRefreshState.SHUTTING_DOWN:
                 pair_action_label.setText(
                     "Pair action: Finishing the current pair refresh before closing; "
-                    "no further refresh can be started."
+                    "no further refresh can be started. "
+                    f"Base evidence: {base_evidence_capability()}."
                 )
                 return
             if not (context.ally_ids or context.enemy_ids):
                 pair_action_label.setText(
                     "Pair action: Add an allied or enemy pick before pair evidence can run. "
-                    "Meta/Personal remain available; no pair refresh is requested."
+                    f"Base evidence: {base_evidence_capability()}; no pair refresh is requested."
                 )
                 return
             if not input_data.shortlist:
                 pair_action_label.setText(
                     "Pair action: No legal shortlist is available for this draft. "
-                    "Meta/Personal remain available; pair refresh cannot run."
+                    f"Base evidence: {base_evidence_capability()}; pair refresh cannot run."
                 )
                 return
             if pair_state in (PairRefreshState.DEBOUNCING, PairRefreshState.LOADING):
                 pair_action_label.setText(
                     "Pair action: Updating evidence for this context. Wait for completion, "
                     "or use Refresh pair evidence to queue one latest retry. "
-                    "Meta/Personal remain available."
+                    f"Base evidence: {base_evidence_capability()}."
                 )
                 return
             current_result = (
@@ -1418,51 +1437,40 @@ def create_main_window(
                     pair_action_label.setText(
                         f"Pair action: {unavailable_text} {verb(unavailable)} unavailable; "
                         f"{names(available)} {verb(available)} still available. {retry} "
-                        "Meta/Personal remain available."
+                        f"Base evidence: {base_evidence_capability()}."
                     )
                 else:
                     pair_action_label.setText(
                         f"Pair action: {unavailable_text} {verb(unavailable)} unavailable for this "
                         f"context. {retry} "
-                        "Meta/Personal remain available."
+                        f"Base evidence: {base_evidence_capability()}."
                     )
                 return
             if pair_state is PairRefreshState.ERROR:
                 pair_action_label.setText(
                     "Pair action: Pair evidence is unavailable for this context. "
-                    f"{retry} Meta/Personal remain available."
+                    f"{retry} Base evidence: {base_evidence_capability()}."
                 )
                 return
             if current_result is not None:
                 pair_action_label.setText(
                     f"Pair action: {names(available)} {verb(available)} available for the current "
                     "context. "
-                    "Meta/Personal remain independently available."
+                    f"Base evidence: {base_evidence_capability()}."
                 )
                 return
             pair_action_label.setText(
                 "Pair action: Pair evidence has not completed for this context. "
-                f"{retry} Meta/Personal remain available."
+                f"{retry} Base evidence: {base_evidence_capability()}."
             )
 
         def update_evidence_capability_summary() -> None:
             """Render loaded evidence capability without provider or controller side effects."""
-            base = evidence_by_role.for_role(session.role)
             context = pair_input().context
             current_result = (
                 latest_pair_result
                 if latest_pair_result is not None and latest_pair_result.context == context
                 else None
-            )
-            meta = (
-                "available (current-week role scope)"
-                if base.evidence.role_meta
-                else "unavailable in current loaded evidence"
-            )
-            personal = (
-                "available (all-time; role unknown)"
-                if personal_stats
-                else "unavailable in current loaded evidence"
             )
 
             def pair_component(requested: bool, error: str | None) -> str:
@@ -1486,7 +1494,7 @@ def create_main_window(
 
             evidence_capability_summary.setText(
                 "Evidence capability: "
-                f"Meta {meta}; Personal {personal}; "
+                f"{base_evidence_capability()}; "
                 "Counter "
                 + pair_component(
                     bool(context.enemy_ids),

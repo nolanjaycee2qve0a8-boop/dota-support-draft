@@ -50,6 +50,8 @@ DOTA-038 adds one-step local draft Undo/Redo for picks, bans, and intended P4/P5
 
 DOTA-039 adds up to ten named local manual-draft snapshots. They are saved in current-user QSettings only after an explicit Save click and contain only the snapshot name plus patch, P4/P5 role, and allied/enemy/ban hero IDs; duplicate names are rejected rather than overwritten. Loading requires Preview then Confirm, does not auto-apply at startup, and never stores Tokens, player data, manual ally position/lane context, evidence, provider results, cache, paths, or history. A confirmed load uses the normal local draft refresh path; it is not an authoritative or auto-detected match state.
 
+DOTA-040 adds one independent local session-recovery record. It is updated only after a successful draft mutation, and startup only reports compatible recovery metadata; it never auto-applies a previous draft. Preview then Confirm is required to restore patch, role, picks, and bans. Reset Draft and explicit Discard clear the recovery record. Recovery excludes Tokens, accounts, evidence, cache, manual ally context, history, search, selection, sorting, comparisons, import text, and paths.
+
 ## Windows local Token launch
 
 From the project root, run:

@@ -52,6 +52,8 @@ DOTA-038 retains at most one prior local `DraftState` and one redo state in the 
 
 DOTA-039 adds an explicit current-user QSettings snapshot boundary. Its versioned JSON document encodes a validated name plus only DraftState patch, P4/P5 role, and allied/enemy/ban hero IDs; it rejects malformed, incompatible, duplicate, over-limit, path-like, unknown, inactive, or overlapping data before it can affect the session. Snapshot list metadata is inert at startup. Save, Preview, Confirm load, and Delete are the only UI actions that access the store; Preview/Cancel/Delete and failures never mutate `DraftState` or schedule pair work. Confirmed load runs `replace_draft_state_only` as one history step, preserving only still-valid manual ally context and using the existing current-context pair refresh rather than restoring evidence or workers.
 
+DOTA-040 adds a distinct single-record QSettings session-recovery boundary. Its versioned document contains only a timestamp plus the same validated DraftState patch/role/hero-ID fields; it does not share DOTA-039's named snapshot key. Only successful semantic draft mutations write it. Startup reads only safe availability metadata and does not mutate session or schedule pair work. Preview and Cancel are inert; Confirm runs `replace_draft_state_only` as one history step and normal current-context refresh, retaining only still-valid current manual ally context. Reset Draft and explicit Discard clear the recovery record.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

@@ -35,6 +35,7 @@ from dota_support_draft.config import (
     DraftSnapshotStore,
     LocalDraftSnapshot,
     PlayerAccountPreferenceStore,
+    SessionRecoveryStore,
 )
 from dota_support_draft.domain import (
     CounterEvidence,
@@ -106,6 +107,7 @@ def create_main_window(
     pair_service: DraftPairEvidenceService | None = None,
     player_preferences: PlayerAccountPreferenceStore | None = None,
     snapshot_store: DraftSnapshotStore | None = None,
+    recovery_store: SessionRecoveryStore | None = None,
     pair_debounce_ms: int = PairEvidenceRefreshController.DEBOUNCE_MS,
 ) -> DraftMainWindow:
     """Build the GUI; all draft mutations are local before pair refresh is scheduled."""
@@ -248,6 +250,26 @@ def create_main_window(
     toggle_snapshots.setCheckable(True)
     snapshot_entry_layout.addWidget(toggle_snapshots)
     layout.addWidget(snapshot_entry)
+    recovery_entry = QWidget()
+    recovery_entry.setObjectName("session-recovery-entry")
+    recovery_layout = QHBoxLayout(recovery_entry)
+    recovery_layout.setContentsMargins(0, 0, 0, 0)
+    recovery_status = QLabel("Local session recovery: checking saved metadata…")
+    recovery_status.setObjectName("session-recovery-status")
+    preview_recovery = QPushButton("Preview recovery")
+    preview_recovery.setObjectName("preview-session-recovery")
+    cancel_recovery = QPushButton("Cancel recovery preview")
+    cancel_recovery.setObjectName("cancel-session-recovery")
+    confirm_recovery = QPushButton("Confirm restore recovery")
+    confirm_recovery.setObjectName("confirm-session-recovery")
+    discard_recovery = QPushButton("Discard recovery")
+    discard_recovery.setObjectName("discard-session-recovery")
+    cancel_recovery.setEnabled(False)
+    confirm_recovery.setEnabled(False)
+    recovery_layout.addWidget(recovery_status, 1)
+    for button in (preview_recovery, cancel_recovery, confirm_recovery, discard_recovery):
+        recovery_layout.addWidget(button)
+    layout.addWidget(recovery_entry)
     snapshot_section = QWidget()
     snapshot_section.setObjectName("local-snapshot-section")
     snapshot_layout = QVBoxLayout(snapshot_section)
@@ -540,6 +562,8 @@ def create_main_window(
         pending_import: ManualImportAssessment | None = None
         pending_snapshot: LocalDraftSnapshot | None = None
         snapshots_by_name: dict[str, LocalDraftSnapshot] = {}
+        available_recovery: DraftState | None = None
+        pending_recovery: DraftState | None = None
         last_confirmed_import_time = None
         undo_snapshot: DraftState | None = None
         redo_snapshot: DraftState | None = None
@@ -553,11 +577,115 @@ def create_main_window(
             undo_snapshot, redo_snapshot = before, None
             update_draft_history_controls()
 
+        def refresh_recovery_status(message: str | None = None) -> None:
+            nonlocal available_recovery, pending_recovery
+            pending_recovery = None
+            cancel_recovery.setEnabled(False)
+            confirm_recovery.setEnabled(False)
+            if recovery_store is None:
+                available_recovery = None
+                preview_recovery.setEnabled(False)
+                discard_recovery.setEnabled(False)
+                recovery_status.setText("Local session recovery is unavailable in this window.")
+                return
+            read = recovery_store.load_recovery()
+            if read.problem is not None:
+                available_recovery = None
+                preview_recovery.setEnabled(False)
+                discard_recovery.setEnabled(True)
+                recovery_status.setText(read.problem)
+                return
+            if read.draft is None:
+                available_recovery = None
+                preview_recovery.setEnabled(False)
+                discard_recovery.setEnabled(False)
+                recovery_status.setText(message or "No local session recovery is available.")
+                return
+            if read.draft.patch != session.patch:
+                available_recovery = None
+                preview_recovery.setEnabled(False)
+                discard_recovery.setEnabled(True)
+                recovery_status.setText(
+                    "Local session recovery uses a different patch and cannot be restored."
+                )
+                return
+            available_recovery = read.draft
+            preview_recovery.setEnabled(True)
+            discard_recovery.setEnabled(True)
+            recovery_status.setText(
+                message or "Local session recovery is available — preview it before any restore."
+            )
+
+        def persist_recovery(*, clear: bool = False) -> None:
+            if recovery_store is None:
+                return
+            try:
+                if clear:
+                    recovery_store.clear_recovery()
+                else:
+                    recovery_store.save_recovery(session.to_draft_state())
+            except RuntimeError:
+                recovery_status.setText("Local session recovery could not be updated.")
+                return
+            refresh_recovery_status(
+                "Local session recovery cleared after Reset Draft."
+                if clear
+                else "Local session recovery saved for explicit restore after restart."
+            )
+
+        def preview_session_recovery() -> None:
+            nonlocal pending_recovery
+            recovery = available_recovery
+            if recovery is None:
+                recovery_status.setText("No compatible local recovery is available.")
+                return
+            pending_recovery = recovery
+            preview_recovery.setEnabled(False)
+            cancel_recovery.setEnabled(True)
+            confirm_recovery.setEnabled(True)
+            recovery_status.setText(
+                "Recovery preview: Position "
+                f"{'4' if recovery.intended_role is Role.POSITION_4 else '5'}; "
+                f"allies {len(recovery.allied_picks)}, enemies {len(recovery.enemy_picks)}, "
+                f"bans {len(recovery.banned_heroes)}. Confirm replaces only picks, bans, and role."
+            )
+
+        def cancel_session_recovery() -> None:
+            refresh_recovery_status("Recovery preview cancelled. Current draft is unchanged.")
+
+        def confirm_session_recovery() -> None:
+            recovery = pending_recovery
+            if recovery is None:
+                refresh_recovery_status(
+                    "No recovery preview is available. Current draft is unchanged."
+                )
+                return
+            try:
+                before = session.to_draft_state()
+                session.replace_draft_state_only(recovery)
+            except ValueError:
+                refresh_recovery_status(
+                    "Recovery could not be restored. Current draft is unchanged."
+                )
+                return
+            record_draft_change(before)
+            persist_recovery()
+            invalidate_import_preview_for_draft_change()
+            four.setChecked(session.role is Role.POSITION_4)
+            five.setChecked(session.role is Role.POSITION_5)
+            refresh()
+            update_draft_action_controls("Local session recovery restored.")
+            trigger_pair_refresh()
+
+        def discard_session_recovery() -> None:
+            persist_recovery(clear=True)
+
         def restore_draft_history(snapshot: DraftState, redo: bool) -> None:
             nonlocal undo_snapshot, redo_snapshot
             current = session.to_draft_state()
             session.replace_draft_state_only(snapshot)
             undo_snapshot, redo_snapshot = (current, None) if redo else (None, current)
+            persist_recovery()
             invalidate_import_preview_for_draft_change()
             four.setChecked(session.role is Role.POSITION_4)
             five.setChecked(session.role is Role.POSITION_5)
@@ -695,6 +823,7 @@ def create_main_window(
                 )
                 return
             record_draft_change(before)
+            persist_recovery()
             invalidate_import_preview_for_draft_change()
             four.setChecked(session.role is Role.POSITION_4)
             five.setChecked(session.role is Role.POSITION_5)
@@ -793,6 +922,7 @@ def create_main_window(
             if assessment.observed_at is not None:
                 last_confirmed_import_time = assessment.observed_at
             record_draft_change(before)
+            persist_recovery()
             four.setChecked(session.role is Role.POSITION_4)
             five.setChecked(session.role is Role.POSITION_5)
             refresh()
@@ -1561,6 +1691,7 @@ def create_main_window(
                 update_draft_action_controls(str(error))
                 return
             record_draft_change(before)
+            persist_recovery()
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls(
@@ -1582,6 +1713,7 @@ def create_main_window(
                 update_draft_action_controls(str(error))
                 return
             record_draft_change(before)
+            persist_recovery()
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls(
@@ -1607,6 +1739,7 @@ def create_main_window(
             before = session.to_draft_state()
             session.clear()
             record_draft_change(before)
+            persist_recovery(clear=True)
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls("Draft reset.")
@@ -1618,6 +1751,7 @@ def create_main_window(
             before = session.to_draft_state()
             session.set_role(role)
             record_draft_change(before)
+            persist_recovery()
             invalidate_import_preview_for_draft_change()
             refresh()
             update_draft_action_controls("Role changed; draft context updated.")
@@ -1652,6 +1786,10 @@ def create_main_window(
         )
         confirm_snapshot_load.clicked.connect(apply_snapshot_load)
         delete_snapshot.clicked.connect(delete_selected_snapshot)
+        preview_recovery.clicked.connect(preview_session_recovery)
+        cancel_recovery.clicked.connect(cancel_session_recovery)
+        confirm_recovery.clicked.connect(confirm_session_recovery)
+        discard_recovery.clicked.connect(discard_session_recovery)
         configure_player.clicked.connect(save_player_account)
         clear_player.clicked.connect(clear_player_account)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
@@ -1693,6 +1831,7 @@ def create_main_window(
             ):
                 widget.setEnabled(False)
         refresh_snapshot_list()
+        refresh_recovery_status()
         refresh()
         update_candidate_sort_status()
         update_draft_history_controls()
@@ -1740,6 +1879,11 @@ def create_main_window(
             confirm_snapshot_load,
             delete_snapshot,
             toggle_snapshots,
+            preview_recovery,
+            cancel_recovery,
+            confirm_recovery,
+            discard_recovery,
+            recovery_entry,
         ):
             widget.setEnabled(False)
     scroll_area = QScrollArea()

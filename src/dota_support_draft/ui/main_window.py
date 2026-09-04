@@ -1465,7 +1465,7 @@ def create_main_window(
                 else "unavailable in current loaded evidence"
             )
 
-            def pair_component(name: str, requested: bool, error: str | None) -> str:
+            def pair_component(requested: bool, error: str | None) -> str:
                 if not requested:
                     return "not requested for this draft"
                 if pair_service is None:
@@ -1489,13 +1489,11 @@ def create_main_window(
                 f"Meta {meta}; Personal {personal}; "
                 "Counter "
                 + pair_component(
-                    "Counter",
                     bool(context.enemy_ids),
                     current_result.counter_error if current_result else None,
                 )
                 + "; Synergy "
                 + pair_component(
-                    "Synergy",
                     bool(context.ally_ids),
                     current_result.synergy_error if current_result else None,
                 )

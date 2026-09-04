@@ -5,7 +5,7 @@ from typing import Protocol, cast
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
-from dota_support_draft.config import PlayerAccountPreferenceStore
+from dota_support_draft.config import PlayerAccountPreferenceStore, QSettingsDraftSnapshotStore
 from dota_support_draft.draft.bootstrap import DraftBootstrapData, DraftBootstrapService
 from dota_support_draft.draft.pair_evidence import DraftPairEvidenceService
 from dota_support_draft.draft.session import ManualDraftSession
@@ -84,6 +84,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
                 ),
                 pair_service=self.pair_service,
                 player_preferences=self.player_preferences,
+                snapshot_store=QSettingsDraftSnapshotStore(bootstrap.heroes),
             ),
         )
         self.replacement.show()

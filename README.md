@@ -48,6 +48,8 @@ DOTA-037 gives rejected manual imports safe repair guidance: JSON syntax reports
 
 DOTA-038 adds one-step local draft Undo/Redo for picks, bans, and intended P4/P5 role. It is local draft history only: it never restores pair evidence, provider results, workers, or authoritative game state.
 
+DOTA-039 adds up to ten named local manual-draft snapshots. They are saved in current-user QSettings only after an explicit Save click and contain only the snapshot name plus patch, P4/P5 role, and allied/enemy/ban hero IDs; duplicate names are rejected rather than overwritten. Loading requires Preview then Confirm, does not auto-apply at startup, and never stores Tokens, player data, manual ally position/lane context, evidence, provider results, cache, paths, or history. A confirmed load uses the normal local draft refresh path; it is not an authoritative or auto-detected match state.
+
 ## Windows local Token launch
 
 From the project root, run:

@@ -230,14 +230,14 @@ def test_resizable_content_layout_preserves_controls_without_pair_work() -> None
     assert splitter is not None
     assert composition is not None
     assert table is not None
-    assert splitter.count() == 5
-    assert splitter.sizes()[0] == 0
-    assert all(size > 0 for size in splitter.sizes()[1:])
+    assert splitter.count() == 6
+    assert splitter.sizes()[:2] == [0, 0]
+    assert all(size > 0 for size in splitter.sizes()[2:])
     assert composition.isVisible() and table.isVisible() and explanation.isVisible()
     assert comparison is not None and comparison.isVisible()
     assert table.viewport().height() >= 120
 
-    splitter.setSizes([0, 100, 320, 140, 170])
+    splitter.setSizes([0, 0, 100, 320, 140, 170])
     window.resize(920, 680)
     app.processEvents()
     assert table.viewport().height() >= 100

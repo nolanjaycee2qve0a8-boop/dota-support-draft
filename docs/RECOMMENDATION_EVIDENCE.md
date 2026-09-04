@@ -1,5 +1,9 @@
 # Experimental recommendation evidence
 
+## Current evidence capability summary
+
+The desktop capability summary is a local explanation of evidence already loaded for the current role and draft. It does not refresh providers, promise a new HTTP request, or predict a win. Current-week Meta scope and all-time, role-unknown Personal scope remain distinct. Counter and Synergy state reflects only the current context's existing pair result or refresh state. The summary shows `freshness timestamp unavailable` when no verified timestamp exists; scope labels must not be read as a real-time guarantee.
+
 DOTA-004 introduces a provider-neutral evidence model: `RoleMetaEvidence`, `CounterEvidence`, and `SynergyEvidence`. Each carries hero IDs, its explicit P4/P5 role, patch, optional rank bracket, sample count, metric, and provenance. `EvidenceSet` is preloaded data only: scoring it is local and never calls a provider.
 
 ## Confidence and score

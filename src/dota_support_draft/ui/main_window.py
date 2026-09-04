@@ -142,11 +142,17 @@ def create_main_window(
     pair_action_label = QLabel("Pair action: Meta/Personal remain available without pair evidence.")
     pair_action_label.setObjectName("pair-refresh-action")
     pair_action_label.setWordWrap(True)
+    evidence_capability_summary = QLabel(
+        "Evidence capability: loading local evidence status; freshness timestamp unavailable."
+    )
+    evidence_capability_summary.setObjectName("evidence-capability-summary")
+    evidence_capability_summary.setWordWrap(True)
     layout.addWidget(evidence_label)
     layout.addWidget(pair_label)
     layout.addWidget(pair_context_label)
     layout.addWidget(pair_coverage_label)
     layout.addWidget(pair_action_label)
+    layout.addWidget(evidence_capability_summary)
     if stratz_freshness_warning:
         layout.addWidget(QLabel(stratz_freshness_warning))
     role_row = QHBoxLayout()
@@ -1439,6 +1445,64 @@ def create_main_window(
                 f"{retry} Meta/Personal remain available."
             )
 
+        def update_evidence_capability_summary() -> None:
+            """Render loaded evidence capability without provider or controller side effects."""
+            base = evidence_by_role.for_role(session.role)
+            context = pair_input().context
+            current_result = (
+                latest_pair_result
+                if latest_pair_result is not None and latest_pair_result.context == context
+                else None
+            )
+            meta = (
+                "available (current-week role scope)"
+                if base.evidence.role_meta
+                else "unavailable in current loaded evidence"
+            )
+            personal = (
+                "available (all-time; role unknown)"
+                if personal_stats
+                else "unavailable in current loaded evidence"
+            )
+
+            def pair_component(name: str, requested: bool, error: str | None) -> str:
+                if not requested:
+                    return "not requested for this draft"
+                if pair_service is None:
+                    return "unavailable (pair service unavailable)"
+                if pair_state is PairRefreshState.SHUTTING_DOWN:
+                    return "unavailable while closing"
+                if not pair_input().shortlist:
+                    return "unavailable (no legal shortlist)"
+                if pair_state in (PairRefreshState.DEBOUNCING, PairRefreshState.LOADING):
+                    return "pending for current draft"
+                if current_result is not None:
+                    return (
+                        "unavailable for current draft" if error else "available for current draft"
+                    )
+                if pair_state is PairRefreshState.ERROR:
+                    return "unavailable for current draft"
+                return "awaiting current-draft refresh"
+
+            evidence_capability_summary.setText(
+                "Evidence capability: "
+                f"Meta {meta}; Personal {personal}; "
+                "Counter "
+                + pair_component(
+                    "Counter",
+                    bool(context.enemy_ids),
+                    current_result.counter_error if current_result else None,
+                )
+                + "; Synergy "
+                + pair_component(
+                    "Synergy",
+                    bool(context.ally_ids),
+                    current_result.synergy_error if current_result else None,
+                )
+                + ". Freshness timestamp unavailable for current loaded evidence; "
+                "scope labels are not a real-time guarantee."
+            )
+
         def update_manual_refresh_control() -> None:
             controller = window.pair_refresh_controller
             input_data = pair_input()
@@ -1490,6 +1554,7 @@ def create_main_window(
             )
             describe_pair_observability()
             update_pair_actionability()
+            update_evidence_capability_summary()
             update_manual_refresh_control()
             recommendations = scorer.rank(
                 session.to_draft_state(), session.candidates, effective_evidence(), personal_stats
@@ -1577,6 +1642,7 @@ def create_main_window(
             pair_label.setText(message or labels[state])
             describe_pair_observability()
             update_pair_actionability()
+            update_evidence_capability_summary()
             update_manual_refresh_control()
             update_recommendation_explanation()
 

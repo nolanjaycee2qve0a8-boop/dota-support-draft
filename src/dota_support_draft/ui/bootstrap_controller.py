@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 from dota_support_draft.config import (
     PlayerAccountPreferenceStore,
     QSettingsDraftSnapshotStore,
+    QSettingsLocalDraftDataClearStore,
     QSettingsSessionRecoveryStore,
 )
 from dota_support_draft.draft.bootstrap import DraftBootstrapData, DraftBootstrapService
@@ -90,6 +91,7 @@ class ApplicationController(QObject):  # type: ignore[misc]  # PySide6 QObject s
                 player_preferences=self.player_preferences,
                 snapshot_store=QSettingsDraftSnapshotStore(bootstrap.heroes),
                 recovery_store=QSettingsSessionRecoveryStore(bootstrap.heroes),
+                draft_data_clear_store=QSettingsLocalDraftDataClearStore(),
             ),
         )
         self.replacement.show()

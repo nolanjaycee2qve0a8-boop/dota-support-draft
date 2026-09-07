@@ -5,6 +5,7 @@ from .draft_snapshots import (
     SnapshotStoreRead,
     normalize_snapshot_name,
 )
+from .local_draft_data import LocalDraftDataClearStore, QSettingsLocalDraftDataClearStore
 from .player_preferences import (
     PlayerAccountPreferenceStore,
     QSettingsPlayerAccountPreferenceStore,
@@ -22,7 +23,9 @@ __all__ = [
     "PlayerAccountPreferenceStore",
     "DraftSnapshotStore",
     "LocalDraftSnapshot",
+    "LocalDraftDataClearStore",
     "QSettingsDraftSnapshotStore",
+    "QSettingsLocalDraftDataClearStore",
     "QSettingsSessionRecoveryStore",
     "SnapshotStoreRead",
     "SessionRecoveryRead",

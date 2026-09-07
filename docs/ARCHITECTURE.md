@@ -58,6 +58,8 @@ DOTA-041 derives a read-only capability summary from the existing role bundle, l
 
 DOTA-045 keeps candidate-table readability within the existing local presentation boundary. Fixed display widths and header tooltips distinguish unavailable `—` values from zero, while native keyboard navigation highlights the complete selected row and the existing explanation panel renders its full Why text. These presentation settings neither call a provider nor change DraftState, typed display sorting, scoring, shortlist construction, pair-controller generation, or worker lifecycle.
 
+DOTA-046 defines one destructive local-storage boundary. The UI first reads only snapshot count and recovery presence, then requires an explicit confirmation before `QSettingsLocalDraftDataClearStore` removes the two exact D039/D040 keys. It does not delete a QSettings group or prefix, and restores those prior values if its storage write reports a failure. Confirmation updates only local availability labels; it does not mutate DraftState or presentation state, schedule pair work, access a provider, or create a worker.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

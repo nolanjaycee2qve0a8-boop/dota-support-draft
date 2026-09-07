@@ -10,10 +10,12 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLayout,
     QLineEdit,
@@ -463,7 +465,8 @@ def create_main_window(
     candidates.setObjectName("candidate-table")
     candidates.setAccessibleName("Candidate table")
     candidates.setAccessibleDescription(
-        "Use arrow keys to move the local candidate selection. Selection does not change the draft."
+        "Use arrow keys to move the visible candidate row. Selection is local and does not change "
+        "the draft, recommendation evidence, or score."
     )
     candidates.setHorizontalHeaderLabels(
         [
@@ -481,6 +484,28 @@ def create_main_window(
     candidate_header.setObjectName("candidate-table-header")
     candidate_header.setSectionsClickable(True)
     candidate_header.setSortIndicatorShown(False)
+    candidate_header.setMinimumSectionSize(78)
+    candidate_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+    candidate_columns = (
+        (154, "Hero name. Display order only."),
+        (148, "Experimental ordering score. This is not a win prediction."),
+        (112, "Confidence for the displayed experimental evidence."),
+        (86, "Meta evidence; unavailable evidence is shown as —."),
+        (86, "Counter evidence; unavailable evidence is shown as —."),
+        (86, "Synergy evidence; unavailable evidence is shown as —."),
+        (98, "Personal evidence is all-time and role-unknown; unavailable evidence is shown as —."),
+        (300, "Why/evidence summary. Select a row to read the complete explanation below."),
+    )
+    for index, (width, tooltip) in enumerate(candidate_columns):
+        candidates.setColumnWidth(index, width)
+        header_item = candidates.horizontalHeaderItem(index)
+        if header_item is not None:
+            header_item.setToolTip(tooltip)
+    candidates.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    candidates.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    candidates.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    candidates.setAlternatingRowColors(True)
+    candidates.setWordWrap(False)
     candidate_sort_status = QLabel(
         "Candidate display order: default recommendation order — display order only; "
         "does not change recommendation evidence or score."

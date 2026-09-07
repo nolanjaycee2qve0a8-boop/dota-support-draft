@@ -54,6 +54,8 @@ DOTA-039 adds an explicit current-user QSettings snapshot boundary. Its versione
 
 DOTA-040 adds a distinct single-record QSettings session-recovery boundary. Its versioned document contains only a timestamp plus the same validated DraftState patch/role/hero-ID fields; it does not share DOTA-039's named snapshot key. Only successful semantic draft mutations write it. Startup reads only safe availability metadata and does not mutate session or schedule pair work. Preview and Cancel are inert; Confirm runs `replace_draft_state_only` as one history step and normal current-context refresh, retaining only still-valid current manual ally context. Reset Draft and explicit Discard clear the recovery record.
 
+DOTA-041 derives a read-only capability summary from the existing role bundle, local personal stats, current pair context, pair state, and context-matched pair result. It neither owns a timestamp nor initiates refresh. It renders current-week Meta scope and all-time/role-unknown Personal scope only when those loaded inputs exist; pair components are described as not requested, pending, awaiting, available, or unavailable without rendering raw provider errors. Its freshness wording explicitly says when no verified timestamp is available, never claiming real-time data.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

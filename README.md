@@ -58,6 +58,8 @@ DOTA-044 presents that local status in two readable layers: Recommendation / bas
 
 DOTA-045 makes the local candidate table easier to inspect: readable fixed-width evidence columns, explicit `—` tooltips for unavailable evidence, and full-row keyboard selection. The `Why` column points to the complete selected-candidate explanation below. These are display-only affordances: they do not change draft state, recommendation evidence, scores, shortlists, pair work, or network activity.
 
+DOTA-046 adds an explicit `Clear saved local draft data` confirmation. After the user confirms, it removes only named local snapshots and saved session recovery from current-user QSettings. It never clears the current in-memory draft, Tokens, player/account settings, history, evidence, cache, import text, manual ally context, undo/redo, search, comparison, sorting, or unrelated settings; cancel, close, no-data, and storage-failure paths leave data unchanged.
+
 ## Windows local Token launch
 
 From the project root, run:

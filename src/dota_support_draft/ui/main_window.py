@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from dota_support_draft.config import (
     DraftSnapshotStore,
+    LocalDraftDataClearStore,
     LocalDraftSnapshot,
     PlayerAccountPreferenceStore,
     SessionRecoveryStore,
@@ -110,6 +111,7 @@ def create_main_window(
     player_preferences: PlayerAccountPreferenceStore | None = None,
     snapshot_store: DraftSnapshotStore | None = None,
     recovery_store: SessionRecoveryStore | None = None,
+    draft_data_clear_store: LocalDraftDataClearStore | None = None,
     pair_debounce_ms: int = PairEvidenceRefreshController.DEBOUNCE_MS,
 ) -> DraftMainWindow:
     """Build the GUI; all draft mutations are local before pair refresh is scheduled."""
@@ -298,6 +300,33 @@ def create_main_window(
     for button in (preview_recovery, cancel_recovery, confirm_recovery, discard_recovery):
         recovery_layout.addWidget(button)
     layout.addWidget(recovery_entry)
+    clear_saved_draft_data = QPushButton("Clear saved local draft data")
+    clear_saved_draft_data.setObjectName("clear-saved-local-draft-data")
+    clear_saved_draft_data.setToolTip(
+        "Shows a confirmation before deleting only saved snapshots and session recovery."
+    )
+    clear_saved_draft_data_status = QLabel("Saved local draft data has not been cleared.")
+    clear_saved_draft_data_status.setObjectName("clear-saved-local-draft-data-status")
+    clear_saved_draft_confirmation = QWidget()
+    clear_saved_draft_confirmation.setObjectName("clear-saved-local-draft-data-confirmation")
+    clear_saved_draft_confirmation_layout = QVBoxLayout(clear_saved_draft_confirmation)
+    clear_saved_draft_confirmation_layout.setContentsMargins(0, 0, 0, 0)
+    clear_saved_draft_confirmation_message = QLabel()
+    clear_saved_draft_confirmation_message.setObjectName("clear-saved-local-draft-data-message")
+    clear_saved_draft_confirmation_message.setWordWrap(True)
+    confirm_clear_saved_draft_data = QPushButton("Confirm clear saved local draft data")
+    confirm_clear_saved_draft_data.setObjectName("confirm-clear-saved-local-draft-data")
+    cancel_clear_saved_draft_data = QPushButton("Cancel clear saved local draft data")
+    cancel_clear_saved_draft_data.setObjectName("cancel-clear-saved-local-draft-data")
+    clear_saved_draft_confirmation_controls = QHBoxLayout()
+    clear_saved_draft_confirmation_controls.addWidget(confirm_clear_saved_draft_data)
+    clear_saved_draft_confirmation_controls.addWidget(cancel_clear_saved_draft_data)
+    clear_saved_draft_confirmation_layout.addWidget(clear_saved_draft_confirmation_message)
+    clear_saved_draft_confirmation_layout.addLayout(clear_saved_draft_confirmation_controls)
+    clear_saved_draft_confirmation.setVisible(False)
+    layout.addWidget(clear_saved_draft_data)
+    layout.addWidget(clear_saved_draft_data_status)
+    layout.addWidget(clear_saved_draft_confirmation)
     snapshot_section = QWidget()
     snapshot_section.setObjectName("local-snapshot-section")
     snapshot_layout = QVBoxLayout(snapshot_section)
@@ -932,6 +961,77 @@ def create_main_window(
                 "Selected local snapshot deleted. Current draft is unchanged."
             )
             refresh_snapshot_list("Selected local snapshot deleted. Current draft is unchanged.")
+
+        def set_clear_saved_draft_confirmation(visible: bool) -> None:
+            clear_saved_draft_confirmation.setVisible(visible)
+            if visible:
+                reveal_expanded_control(confirm_clear_saved_draft_data)
+
+        def prepare_clear_saved_draft_data() -> None:
+            if snapshot_store is None or recovery_store is None or draft_data_clear_store is None:
+                clear_saved_draft_data_status.setText(
+                    "Saved local draft data storage is unavailable in this window. "
+                    "Nothing was cleared."
+                )
+                return
+            snapshot_read = snapshot_store.load_snapshots()
+            recovery_read = recovery_store.load_recovery()
+            if snapshot_read.problem is not None or recovery_read.problem is not None:
+                clear_saved_draft_data_status.setText(
+                    "Saved local draft storage is unavailable or incompatible. Nothing was cleared."
+                )
+                return
+            snapshot_count = len(snapshot_read.snapshots)
+            has_recovery = recovery_read.draft is not None
+            if snapshot_count == 0 and not has_recovery:
+                clear_saved_draft_data_status.setText(
+                    "No saved local draft snapshots or session recovery are present. "
+                    "Nothing was cleared."
+                )
+                return
+            snapshot_summary = f"{snapshot_count} named local snapshot(s)"
+            recovery_summary = (
+                "one saved session recovery" if has_recovery else "no session recovery"
+            )
+            clear_saved_draft_confirmation_message.setText(
+                "Irreversible confirmation: clear "
+                f"{snapshot_summary} and {recovery_summary}. This does not clear the current "
+                "in-memory draft, Token, player/account configuration, personal history, evidence, "
+                "pair/cache data, import text, manual ally context, undo/redo, search, comparison, "
+                "sorting, or any other QSettings."
+            )
+            clear_saved_draft_data_status.setText(
+                "Confirmation required. No saved local draft data has been cleared."
+            )
+            set_clear_saved_draft_confirmation(True)
+
+        def cancel_clear_saved_draft_data_confirmation() -> None:
+            set_clear_saved_draft_confirmation(False)
+            clear_saved_draft_data_status.setText(
+                "Clear saved local draft data cancelled. Nothing was cleared."
+            )
+
+        def apply_clear_saved_draft_data() -> None:
+            if draft_data_clear_store is None:
+                clear_saved_draft_data_status.setText(
+                    "Saved local draft data storage is unavailable in this window. "
+                    "Nothing was cleared."
+                )
+                return
+            try:
+                draft_data_clear_store.clear_saved_local_draft_data()
+            except RuntimeError as error:
+                clear_saved_draft_data_status.setText(str(error))
+                return
+            set_clear_saved_draft_confirmation(False)
+            set_snapshot_load_preview("Saved local snapshots cleared. Current draft is unchanged.")
+            refresh_snapshot_list("Saved local snapshots cleared. Current draft is unchanged.")
+            refresh_recovery_status(
+                "Saved local session recovery cleared. Current draft is unchanged."
+            )
+            clear_saved_draft_data_status.setText(
+                "Saved local snapshots and session recovery cleared. Current draft is unchanged."
+            )
 
         def clear_import_preview(message: str, *, collapse: bool = False) -> None:
             nonlocal pending_import
@@ -1887,6 +1987,9 @@ def create_main_window(
         cancel_recovery.clicked.connect(cancel_session_recovery)
         confirm_recovery.clicked.connect(confirm_session_recovery)
         discard_recovery.clicked.connect(discard_session_recovery)
+        clear_saved_draft_data.clicked.connect(prepare_clear_saved_draft_data)
+        confirm_clear_saved_draft_data.clicked.connect(apply_clear_saved_draft_data)
+        cancel_clear_saved_draft_data.clicked.connect(cancel_clear_saved_draft_data_confirmation)
         configure_player.clicked.connect(save_player_account)
         clear_player.clicked.connect(clear_player_account)
         four.toggled.connect(lambda checked: choose_role(Role.POSITION_4, checked))
@@ -1927,6 +2030,8 @@ def create_main_window(
                 delete_snapshot,
             ):
                 widget.setEnabled(False)
+        if snapshot_store is None or recovery_store is None or draft_data_clear_store is None:
+            clear_saved_draft_data.setEnabled(False)
         refresh_snapshot_list()
         refresh_recovery_status()
         refresh()
@@ -1981,6 +2086,9 @@ def create_main_window(
             confirm_recovery,
             discard_recovery,
             recovery_entry,
+            clear_saved_draft_data,
+            confirm_clear_saved_draft_data,
+            cancel_clear_saved_draft_data,
         ):
             widget.setEnabled(False)
     scroll_area = QScrollArea()

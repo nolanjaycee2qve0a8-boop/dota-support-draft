@@ -9,7 +9,7 @@ Possible future directions include:
 - team-composition and lane-fit evidence（先参阅 [DOTA-012 研究](DOTA-012_COMPOSITION_LANE_FIT_RESEARCH.md)与 [DOTA-016 provider gate](DOTA-016_LANE_FIT_PROVIDER_GATE.md)；真正 statistical lane-fit 仍未获准实施）;
 - further recommendation explanation improvements beyond the completed selected-candidate panel and local layout work;
 - legal adapters that produce `DraftState`（DOTA-033 已批准且仅实现 user-pasted `MANUAL_IMPORT/v1` 的 preview/explicit confirmation；仍须参阅 [DOTA-028 adapter gate](DOTA-028_DRAFTSTATE_ADAPTER_GATE.md) 与 [DOTA-029 manual-import contract](DOTA-029_MANUAL_IMPORT_CONTRACT.md)：Dota GSI、第三方文件、watcher、listener 和任何自动 runtime adapter 均未获批准）;
-- Windows packaging（先参阅 [DOTA-023 Windows packaging gate](DOTA-023_WINDOWS_PACKAGING_GATE.md)、[DOTA-026 PySide6/ICU gate](DOTA-026_PYSIDE_WHEEL_ICU_GATE.md)、[DOTA-042 runtime research](DOTA-042_ONEDIR_RUNTIME_RESEARCH.md) 与 [DOTA-047 closure audit](DOTA-047_NATIVE_RUNTIME_CLOSURE_AUDIT.md)；DOTA-047 未取得 exact-wheel manifest/PE closure 证据，本地 onedir、安装器、签名或发布均未获批准）。
+- Windows packaging（先参阅 [DOTA-023 Windows packaging gate](DOTA-023_WINDOWS_PACKAGING_GATE.md)、[DOTA-026 PySide6/ICU gate](DOTA-026_PYSIDE_WHEEL_ICU_GATE.md)、[DOTA-042 runtime research](DOTA-042_ONEDIR_RUNTIME_RESEARCH.md) 与 [DOTA-047 closure audit](DOTA-047_NATIVE_RUNTIME_CLOSURE_AUDIT.md)；DOTA-047 因审计环境磁盘空间不足而未取得 exact-wheel manifest/PE closure 证据，本地 onedir、安装器、签名或发布均未获批准）。
 
 These are directions for later review, not commitments or approved implementation work.
 

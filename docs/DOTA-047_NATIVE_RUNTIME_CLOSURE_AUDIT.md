@@ -6,9 +6,9 @@
 
 **Route A has insufficient closure evidence. New build remediation is not approved.**
 
-The one authorized installation attempt in a new dedicated Windows x64 audit venv did not reach a `Successfully installed` result and left neither `PySide6` nor `PyInstaller` importable. Therefore this audit has no installed-wheel manifest, no PE import table, and no restricted `import PySide6.QtCore` observation for the exact environment. It must not turn an absence of new evidence into a different version choice, a new download attempt, or an onedir build.
+The one authorized installation attempt in a new dedicated Windows x64 audit venv stopped with `ERROR: Could not install packages due to an OSError: [Errno 28] No space left on device` while `PySide6_Essentials` was approximately `3.9/76.9 MB` downloaded. It did not reach a `Successfully installed` result and left neither `PySide6` nor `PyInstaller` importable. Therefore this audit has no installed-wheel manifest, no PE import table, and no restricted `import PySide6.QtCore` observation for the exact environment. It must not turn an absence of new evidence into a different version choice, a new download attempt, or an onedir build.
 
-The precise stop condition is: **the exact official wheel artifacts were not available in the isolated audit environment for inspection.** The missing evidence is the current artifact hashes, installed layouts, PE imports, and proof that every non-system DLL has an official lock-managed source.
+The precise stop condition is: **this audit environment could not completely download and retain the exact official wheel artifacts because its storage was exhausted.** This does not assert anything about PyPI availability, wheel contents, or the root cause of DOTA-024's DLL failure. The missing evidence is the current artifact hashes, installed layouts, PE imports, and proof that every non-system DLL has an official lock-managed source.
 
 ## Environment and source provenance
 
@@ -16,7 +16,7 @@ The precise stop condition is: **the exact official wheel artifacts were not ava
 | --- | --- | --- | --- | --- |
 | CPython | 3.14.6 x64 | `Python 3.14.6` observed in a new, dedicated venv. | [Official Python 3.14.6 release page](https://www.python.org/downloads/release/python-3146/), accessed 2026-09-07. No Python distribution was downloaded in this audit, so no local artifact hash exists. | Engineering observation + official source. |
 | PySide6 | 6.11.2 | Official PyPI resolver selected `pyside6-6.11.2-cp310-abi3-win_amd64.whl`; installation did not complete. | [Official PyPI JSON](https://pypi.org/pypi/PySide6/6.11.2/json), catalog SHA-256 `3201d67e3c10be2eaedd3910ff0f02351eca7e88c95a291cde5e7f2f55ef207f`, accessed 2026-09-07. No local wheel remained to verify against that hash. | Official metadata; local artifact absent. |
-| PySide6 family | `PySide6_Essentials`, `PySide6_Addons`, `shiboken6` all 6.11.2 | Resolver requested all three exact versions; Addons download did not complete. | [PySide6 official metadata](https://pypi.org/pypi/PySide6/6.11.2/json) declares these exact requirements. No artifact/hash was materialized locally. | Official metadata; local artifact absent. |
+| PySide6 family | `PySide6_Essentials`, `PySide6_Addons`, `shiboken6` all 6.11.2 | Resolver requested all three exact versions; the `PySide6_Essentials` download stopped at approximately `3.9/76.9 MB` with disk space exhausted. | [PySide6 official metadata](https://pypi.org/pypi/PySide6/6.11.2/json) declares these exact requirements. No complete artifact/hash was materialized locally. | Official metadata; local artifact absent. |
 | PyInstaller | 6.22.2 | Resolver selected 6.22.2; installation did not complete. | [Official PyPI JSON](https://pypi.org/pypi/PyInstaller/6.22.2/json), accessed 2026-09-07. No local wheel/hash was materialized. | Official metadata; local artifact absent. |
 
 PySide6's official metadata states that the package is the alias for the Essentials and Addons wheels and declares the exact 6.11.2 family requirements. PyInstaller's official 6.22.2 metadata declares Windows support and Python 3.14 support. Those facts establish version availability metadata; they do **not** establish an installed Windows native-DLL closure.
@@ -25,10 +25,10 @@ PySide6's official metadata states that the package is the alias for the Essenti
 
 1. Created a new dedicated venv outside the repository and project `.venv`, using the locally available CPython 3.14.6. No project venv, global Python, PATH, registry, system DLL, Qt SDK, or user setting was modified.
 2. Per the explicit authorization, made one `pip install` attempt with only `PySide6==6.11.2` and `PyInstaller==6.22.2`, using the official PyPI simple index and no cache.
-3. Resolver output identified the expected PySide6 family and PyInstaller transitive package names. The output stopped while downloading `PySide6_Addons`; it did not report successful installation or a specific package-manager error.
+3. Resolver output identified the expected PySide6 family and PyInstaller transitive package names. The `PySide6_Essentials` download reached approximately `3.9/76.9 MB`, then stopped with `OSError: [Errno 28] No space left on device`.
 4. A single read-only check then found no installed `PySide6` or `PyInstaller` modules. No retry was made. No wheel cache or bundle was used as substitute evidence.
 
-This is an **engineering observation**, not an assertion about PyPI availability or a diagnosis of the interrupted download. The audit does not know why the attempt did not complete.
+This is an **engineering observation**, not an assertion about PyPI availability, wheel contents, or the DOTA-024 missing-DLL root cause. The known failure mode of this one audit attempt is local disk exhaustion.
 
 ## Native closure evidence table
 
@@ -50,7 +50,7 @@ The table intentionally distinguishes current facts from DOTA-026 history. “Ab
 | Label | Fact | Consequence |
 | --- | --- | --- |
 | Official confirmation | Python.org publishes the requested 3.14.6 release; PyPI metadata lists PySide6 6.11.2 Windows x64 and its exact family requirements; PyInstaller 6.22.2 metadata supports Python 3.14. | The exact version tuple is a legitimate audit target, not a portable runtime approval. |
-| Engineering observation | The one isolated installation attempt did not complete and installed neither target package. | No current manifest/layout/PE/import evidence exists. |
+| Engineering observation | The one isolated installation attempt stopped with `OSError: [Errno 28] No space left on device` and installed neither target package. | No current manifest/layout/PE/import evidence exists. |
 | Unknown | Which non-system DLLs the exact installed wheels import; whether each has an official, hash-lockable source; whether a no-workaround QtCore import succeeds. | Do not build or remediate. |
 
 ## Non-skippable admission gate

@@ -14,6 +14,7 @@ def test_dota_047_audit_preserves_the_exact_wheel_closure_stop_condition() -> No
         "PyInstaller 6.22.2",
         "insufficient closure evidence",
         "New build remediation is not approved",
+        "No space left on device",
         "No retry was made",
         "QtCore.pyd",
         "Qt6Core.dll",

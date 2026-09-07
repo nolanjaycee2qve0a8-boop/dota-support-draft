@@ -56,6 +56,8 @@ DOTA-041 adds a read-only evidence-capability status. It describes already loade
 
 DOTA-044 presents that local status in two readable layers: Recommendation / base evidence identifies independently loaded Meta and Personal, while Pair evidence / current draft identifies pair readiness, context, Counter/Synergy coverage, and any next action. This is display-only; it does not request evidence or imply real-time freshness.
 
+DOTA-045 makes the local candidate table easier to inspect: readable fixed-width evidence columns, explicit `—` tooltips for unavailable evidence, and full-row keyboard selection. The `Why` column points to the complete selected-candidate explanation below. These are display-only affordances: they do not change draft state, recommendation evidence, scores, shortlists, pair work, or network activity.
+
 ## Windows local Token launch
 
 From the project root, run:

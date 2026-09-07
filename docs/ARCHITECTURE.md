@@ -56,6 +56,8 @@ DOTA-040 adds a distinct single-record QSettings session-recovery boundary. Its 
 
 DOTA-041 derives a read-only capability summary from the existing role bundle, local personal stats, current pair context, pair state, and context-matched pair result. It neither owns a timestamp nor initiates refresh. It renders current-week Meta scope and all-time/role-unknown Personal scope only when those loaded inputs exist; pair components are described as not requested, pending, awaiting, available, or unavailable without rendering raw provider errors. Its freshness wording explicitly says when no verified timestamp is available, never claiming real-time data.
 
+DOTA-045 keeps candidate-table readability within the existing local presentation boundary. Fixed display widths and header tooltips distinguish unavailable `—` values from zero, while native keyboard navigation highlights the complete selected row and the existing explanation panel renders its full Why text. These presentation settings neither call a provider nor change DraftState, typed display sorting, scoring, shortlist construction, pair-controller generation, or worker lifecycle.
+
 For OpenDota, `HTTP transport → provider DTO/schema validation → normalization → domain + provenance → disk HTTP cache / SQLite` is the live read path. The raw disk cache is not a normalized repository.
 
 ```text

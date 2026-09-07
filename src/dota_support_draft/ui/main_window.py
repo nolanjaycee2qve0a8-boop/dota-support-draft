@@ -7,7 +7,7 @@ from collections.abc import Callable
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -707,21 +707,48 @@ def create_main_window(
             if redo_snapshot is not None:
                 restore_draft_history(redo_snapshot, True)
 
-        def set_import_expanded(expanded: bool) -> None:
-            manual_import_section.setVisible(expanded)
-            toggle_import.setText("Hide import" if expanded else "Show import")
-            if expanded:
+        def update_expandable_sections() -> None:
+            """Keep low-frequency sections reachable in the surrounding scroll area."""
+            import_expanded = toggle_import.isChecked()
+            snapshots_expanded = toggle_snapshots.isChecked()
+            manual_import_section.setVisible(import_expanded)
+            snapshot_section.setVisible(snapshots_expanded)
+            toggle_import.setText("Hide import" if import_expanded else "Show import")
+            toggle_snapshots.setText("Hide snapshots" if snapshots_expanded else "Show snapshots")
+            if import_expanded:
                 content_splitter.setSizes([210, 0, 120, 280, 150, 180])
+                reveal_expanded_control(validate_import)
+            elif snapshots_expanded:
+                content_splitter.setSizes([0, 260, 110, 280, 150, 180])
+                reveal_expanded_control(save_snapshot)
             else:
                 content_splitter.setSizes([0, 0, 120, 330, 150, 180])
 
+        def reveal_expanded_control(control: QWidget) -> None:
+            """Scroll after splitter layout settles, without changing any draft state."""
+
+            def reveal() -> None:
+                if not window.isVisible() or not control.isVisible():
+                    return
+                content = scroll_area.widget()
+                if content is None:
+                    return
+                target_y = control.mapTo(content, QPoint(0, 0)).y()
+                scroll_bar = scroll_area.verticalScrollBar()
+                desired_value = target_y + control.height() + 12 - scroll_area.viewport().height()
+                scroll_bar.setValue(min(max(desired_value, 0), scroll_bar.maximum()))
+
+            QTimer.singleShot(0, reveal)
+
+        def set_import_expanded(expanded: bool) -> None:
+            if expanded and toggle_snapshots.isChecked():
+                toggle_snapshots.setChecked(False)
+            update_expandable_sections()
+
         def set_snapshots_expanded(expanded: bool) -> None:
-            snapshot_section.setVisible(expanded)
-            toggle_snapshots.setText("Hide snapshots" if expanded else "Show snapshots")
-            if expanded:
-                content_splitter.setSizes([0, 260, 110, 280, 150, 180])
-            else:
-                content_splitter.setSizes([0, 0, 120, 330, 150, 180])
+            if expanded and toggle_import.isChecked():
+                toggle_import.setChecked(False)
+            update_expandable_sections()
 
         def selected_snapshot() -> LocalDraftSnapshot | None:
             item = snapshot_list.currentItem()

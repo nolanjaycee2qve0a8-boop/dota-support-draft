@@ -130,13 +130,13 @@ def _assert_safe_summary(text: str) -> None:
         ),
     ),
 )
-def test_no_token_pair_surfaces_reuse_independent_base_evidence_capability(
+def test_no_token_status_hierarchy_keeps_base_evidence_independent(
     has_meta: bool,
     has_personal: bool,
     expected_meta: str,
     expected_personal: str,
 ) -> None:
-    """No-token Pair text reports Meta and Personal independently without side effects."""
+    """No-token base evidence is independent while pair labels avoid generic promises."""
     app = QApplication.instance() or QApplication([])
     heroes = tuple(Hero(index, f"hero_{index}") for index in range(1, 4))
     patch = Patch("p", "7.40", date(2026, 1, 1))
@@ -174,14 +174,16 @@ def test_no_token_pair_surfaces_reuse_independent_base_evidence_capability(
     app.processEvents()
     assert session.to_draft_state() == before
 
+    summary = _summary(window)
+    assert expected_meta in summary.text()
+    assert expected_personal in summary.text()
+    _assert_safe_summary(summary.text())
     for label in (
-        _summary(window),
         _pair_status(window, "pair-refresh-coverage"),
         _pair_status(window, "pair-refresh-action"),
     ):
-        assert expected_meta in label.text()
-        assert expected_personal in label.text()
         assert "Meta/Personal" not in label.text()
+        assert "Base evidence:" not in label.text()
         _assert_safe_summary(label.text())
     window.close()
 
@@ -221,18 +223,19 @@ def test_capability_summary_is_honest_and_local_across_pending_partial_and_ready
     )
     assert "Meta available (current-week role scope)" in summary.text()
     assert "Personal available (all-time; role unknown)" in summary.text()
-    assert "Counter not requested" in summary.text() and "timestamp unavailable" in summary.text()
+    coverage = _pair_status(window, "pair-refresh-coverage")
+    assert "no related picks" in coverage.text() and "timestamp unavailable" in summary.text()
     assert all(term not in summary.text().lower() for term in ("realtime", "raw provider", "token"))
 
     table.selectRow(0)
     _button(window, "Add Ally").click()
     _wait(app, lambda: controller.active_thread is not None or service.calls == 1)
-    assert "Synergy pending" in summary.text() or service.calls == 1
+    assert "Synergy: pending" in coverage.text() or service.calls == 1
     table.selectRow(0)
     _button(window, "Add Enemy").click()
     _wait(app, lambda: service.calls >= 2 and controller.active_thread is None)
-    assert "Counter unavailable for current draft" in summary.text()
-    assert "Synergy available for current draft" in summary.text()
+    assert "Counter: unavailable for current draft" in coverage.text()
+    assert "Synergy: available" in coverage.text()
     assert "raw provider detail" not in summary.text()
     assert "raw provider detail" not in _pair_status(window, "pair-refresh-coverage").text()
     calls, generation = service.calls, controller.generation
@@ -276,10 +279,11 @@ def test_capability_summary_names_service_unavailable_and_no_related_pick_states
     )
     unavailable.show()
     text = _summary(unavailable).text()
-    assert "Counter unavailable (pair service unavailable)" in text
-    assert "Synergy unavailable (pair service unavailable)" in text
+    action = _pair_status(unavailable, "pair-refresh-action").text()
     assert "Meta available" in text and "Personal unavailable" in text
+    assert "pair-refresh service is unavailable" in action
     _assert_safe_summary(text)
+    _assert_safe_summary(action)
     unavailable.close()
 
     no_related = create_main_window(
@@ -291,8 +295,8 @@ def test_capability_summary_names_service_unavailable_and_no_related_pick_states
     no_related.show()
     controller = no_related.pair_refresh_controller
     assert controller is not None
-    text = _summary(no_related).text()
-    assert "Counter not requested" in text and "Synergy not requested" in text
+    text = _pair_status(no_related, "pair-refresh-coverage").text()
+    assert "no related picks" in text
     assert controller.generation == 0 and controller.findChildren(QThread) == []
     _assert_safe_summary(text)
     app.processEvents()
@@ -312,7 +316,7 @@ def test_capability_summary_names_no_shortlist_and_pending_without_extra_work() 
     no_shortlist.show()
     controller = no_shortlist.pair_refresh_controller
     assert controller is not None
-    text = _summary(no_shortlist).text()
+    text = _pair_status(no_shortlist, "pair-refresh-coverage").text()
     assert text.count("unavailable (no legal shortlist)") == 2
     assert controller.generation == 0 and controller.findChildren(QThread) == []
     _assert_safe_summary(text)
@@ -331,8 +335,8 @@ def test_capability_summary_names_no_shortlist_and_pending_without_extra_work() 
     assert controller is not None
     _button(pending, "Refresh pair evidence").click()
     _wait(app, lambda: controller.active_thread is not None)
-    text = _summary(pending).text()
-    assert text.count("pending for current draft") == 2
+    text = _pair_status(pending, "pair-refresh-coverage").text()
+    assert text.count("pending") == 2
     assert service.calls == 0 and controller.generation == 1
     _assert_safe_summary(text)
     _wait(app, lambda: controller.active_thread is None)
@@ -375,8 +379,8 @@ def test_capability_summary_covers_counter_synergy_result_matrix(
     text = _summary(window).text()
     coverage = _pair_status(window, "pair-refresh-coverage").text()
     action = _pair_status(window, "pair-refresh-action").text()
-    assert f"Counter {expected_counter} for current draft" in text
-    assert f"Synergy {expected_synergy} for current draft" in text
+    assert f"Counter: {expected_counter}" in coverage
+    assert f"Synergy: {expected_synergy}" in coverage
     assert "raw provider detail" not in coverage and "raw provider detail" not in action
     _assert_safe_summary(coverage)
     _assert_safe_summary(action)

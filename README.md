@@ -52,7 +52,9 @@ DOTA-039 adds up to ten named local manual-draft snapshots. They are saved in cu
 
 DOTA-040 adds one independent local session-recovery record. It is updated only after a successful draft mutation, and startup only reports compatible recovery metadata; it never auto-applies a previous draft. Preview then Confirm is required to restore patch, role, picks, and bans. Reset Draft and explicit Discard clear the recovery record. Recovery excludes Tokens, accounts, evidence, cache, manual ally context, history, search, selection, sorting, comparisons, import text, and paths.
 
-DOTA-041 adds a read-only evidence-capability summary. It describes the already loaded Meta, Personal, Counter, and Synergy state for the current draft without triggering refresh or network work. Scope labels are not real-time guarantees: when no verified timestamp is present, the summary says freshness timestamp unavailable.
+DOTA-041 adds a read-only evidence-capability status. It describes already loaded evidence without triggering refresh or network work. Scope labels are not real-time guarantees: when no verified timestamp is present, the summary says freshness timestamp unavailable.
+
+DOTA-044 presents that local status in two readable layers: Recommendation / base evidence identifies independently loaded Meta and Personal, while Pair evidence / current draft identifies pair readiness, context, Counter/Synergy coverage, and any next action. This is display-only; it does not request evidence or imply real-time freshness.
 
 ## Windows local Token launch
 
